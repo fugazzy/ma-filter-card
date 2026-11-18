@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.4.0";
+const MAFC_VERSION = "0.4.1";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -2029,7 +2029,7 @@ class MaFilterCardEditor extends HTMLElement {
     return `<div class="tabbox${open ? " open" : ""}">
       <div class="tabhead">
         <button class="ib" data-act="tab-toggle" data-t="${i}">${icon(open ? "mdi:chevron-down" : "mdi:chevron-right")}</button>
-        ${icon(t.icon || TAB_TYPES[t.type]?.icon || "mdi:tab")}
+        <span id="thi${i}">${icon(t.icon || TAB_TYPES[t.type]?.icon || "mdi:tab")}</span>
         <span class="tname">${esc(t.name || typeName)}</span><span class="muted">${esc(typeName)}${t.filter ? " · gefiltert" : ""}</span>
         <span class="sp"></span>
         <button class="ib" data-act="tab-up" data-t="${i}" title="Nach oben"${i === 0 ? " disabled" : ""}>${icon("mdi:arrow-up")}</button>
@@ -2255,10 +2255,16 @@ class MaFilterCardEditor extends HTMLElement {
       const pk = e.target.closest?.("ha-icon-picker[data-iconpick]");
       if (!pk) return;
       e.stopPropagation();
-      const tab = this._config.tabs[+pk.dataset.t];
-      const v = e.detail?.value;
+      // Nur das Ereignis des Pickers selbst zählt – nicht Zwischenwerte seines Suchfelds.
+      // Nicht neu zeichnen, sonst wird der offene Picker zerstört.
+      if (e.composedPath()[0] !== pk) return;
+      const ti = +pk.dataset.t, tab = this._config.tabs[ti];
+      const v = String(e.detail?.value ?? "").trim();
+      if (v && !/^[a-z0-9_-]+:[a-z0-9_-]+$/i.test(v)) return;
       if (v) tab.icon = v; else delete tab.icon;
-      this._emit(); this._render();
+      const hi = sr.getElementById("thi" + ti);
+      if (hi) hi.innerHTML = icon(v || TAB_TYPES[tab.type]?.icon || "mdi:tab");
+      this._emit();
     });
     sr.addEventListener("change", (e) => onEdit(e, true));
   }
