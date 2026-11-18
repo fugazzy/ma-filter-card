@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.4.1";
+const MAFC_VERSION = "0.4.2";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -2251,20 +2251,29 @@ class MaFilterCardEditor extends HTMLElement {
       else if (e.key === "Enter" && this._sugIdx >= 0) { this._sugPick(this._sugIdx); e.preventDefault(); }
       else if (e.key === "Escape") { this._sugClose(); e.preventDefault(); e.stopPropagation(); }
     });
-    sr.addEventListener("value-changed", (e) => {
-      const pk = e.target.closest?.("ha-icon-picker[data-iconpick]");
-      if (!pk) return;
-      e.stopPropagation();
-      // Nur das Ereignis des Pickers selbst zählt – nicht Zwischenwerte seines Suchfelds.
-      // Nicht neu zeichnen, sonst wird der offene Picker zerstört.
-      if (e.composedPath()[0] !== pk) return;
+    // HA-Symbolauswahl: Wert übernehmen, ohne neu zu zeichnen (sonst wird der offene Picker zerstört).
+    // Das Ereignis kann vom Picker selbst oder von seinem inneren Feld kommen; Zwischenwerte beim Tippen
+    // sind keine gültigen Symbolnamen und werden ignoriert.
+    const applyIcon = (pk, raw) => {
       const ti = +pk.dataset.t, tab = this._config.tabs[ti];
-      const v = String(e.detail?.value ?? "").trim();
+      if (!tab) return;
+      const v = String(raw ?? "").trim();
       if (v && !/^[a-z0-9_-]+:[a-z0-9_-]+$/i.test(v)) return;
+      if ((tab.icon || "") === v) return;
       if (v) tab.icon = v; else delete tab.icon;
       const hi = sr.getElementById("thi" + ti);
       if (hi) hi.innerHTML = icon(v || TAB_TYPES[tab.type]?.icon || "mdi:tab");
       this._emit();
+    };
+    sr.addEventListener("value-changed", (e) => {
+      const pk = e.composedPath().find((n) => n.matches?.("ha-icon-picker[data-iconpick]"));
+      if (!pk) return;
+      e.stopPropagation();
+      applyIcon(pk, e.detail?.value);
+    });
+    sr.addEventListener("focusout", (e) => {
+      const pk = e.target.closest?.("ha-icon-picker[data-iconpick]");
+      if (pk) setTimeout(() => applyIcon(pk, pk.value), 0);
     });
     sr.addEventListener("change", (e) => onEdit(e, true));
   }
