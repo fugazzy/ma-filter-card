@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MA Filtercard Test</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+<style>
+  :root { --primary-color:#03a9f4; --accent-color:#ff9800; --primary-text-color:#212121; --secondary-text-color:#727272;
+    --card-background-color:#fff; --secondary-background-color:#f2f4f7; --divider-color:rgba(0,0,0,.12); --text-primary-color:#fff;
+    --ha-card-border-radius:12px; --error-color:#db4437; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --primary-text-color:#e1e1e1; --secondary-text-color:#9b9b9b;
+    --card-background-color:#1c1c1c; --secondary-background-color:#282828; --divider-color:rgba(255,255,255,.12); color-scheme: dark; } }
+  :root[data-theme="dark"] { --primary-text-color:#e1e1e1; --secondary-text-color:#9b9b9b;
+    --card-background-color:#1c1c1c; --secondary-background-color:#282828; --divider-color:rgba(255,255,255,.12); color-scheme: dark; }
+  body { margin:0; padding:8px; background: var(--secondary-background-color); font-family: Roboto, system-ui, sans-serif; }
+  #wrap { height: calc(100dvh - 16px); }
+</style>
+</head>
+<body>
+<div id="wrap"></div>
+<script>
+  // Stub für <ha-icon>
+  customElements.define("ha-icon", class extends HTMLElement {
+    static get observedAttributes() { return ["icon"]; }
+    connectedCallback() { this.render(); }
+    attributeChangedCallback() { this.render(); }
+    render() {
+      if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+      const n = (this.getAttribute("icon") || "").replace("mdi:", "");
+      this.shadowRoot.innerHTML = `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+        <style>:host{display:inline-flex;align-items:center;justify-content:center;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px)}
+        i{font-size:var(--mdc-icon-size,24px);line-height:1}</style><i class="mdi mdi-${n}"></i>`;
+    }
+  });
+</script>
+<script src="../ma-filter-card.js"></script>
+<script>
+  const art = (seed, label) => {
+    const h = (seed * 47) % 360;
+    return "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h},70%,55%)"/><stop offset="1" stop-color="hsl(${(h + 60) % 360},70%,30%)"/></linearGradient></defs><rect width="100" height="100" fill="url(#g)"/><text x="50" y="58" font-size="22" text-anchor="middle" fill="rgba(255,255,255,.85)" font-family="sans-serif">${label}</text></svg>`);
+  };
+  const ARTISTS = ["Pink Floyd", "Queen", "Evanescence", "Mark Knopfler", "Daft Punk", "Adele", "Metallica", "Norah Jones", "Café Tacvba", "Ted Nugent"];
+  const GENRES = [["Progressive Rock"], ["Rock"], ["Gothic Metal", "Rock"], ["Rock", "Folk"], ["Electronic"], ["Pop", "Soul"], ["Metal"], ["Jazz"], ["Latin Rock"], ["Hard Rock"]];
+  const mk = (type, i) => {
+    const a = i % ARTISTS.length;
+    const name = { album: `Album ${i + 1}`, track: `Titel ${i + 1}`, playlist: `Playlist ${i + 1}`, radio: `Radio ${i + 1}`, artist: ARTISTS[a] }[type];
+    return {
+      item_id: String(i), provider: "library", name, version: "", uri: `library://${type}/${i}`, media_type: type,
+      favorite: i % 4 === 0, year: 1970 + (i % 50), album_type: type === "album" ? (i % 5 ? "album" : "single") : undefined,
+      metadata: { genres: GENRES[a], popularity: (i * 37) % 101, images: i % 9 === 8 ? [] : [{ type: "thumb", path: art(i, type[0].toUpperCase() + (i + 1)), remotely_accessible: true }] },
+      artists: type === "album" || type === "track" ? [{ name: ARTISTS[a] }] : undefined,
+      album: type === "track" ? { name: `Album ${(i % 40) + 1}` } : undefined,
+      owner: type === "playlist" ? "me" : undefined, duration: 180 + (i % 120),
+    };
+  };
+  const LIB = { album: 240, track: 900, playlist: 30, radio: 25, artist: 10 };
+  const PL_OF = { albums: "album", tracks: "track", playlists: "playlist", radios: "radio", artists: "artist" };
+  let queue = Array.from({ length: 14 }, (_, i) => ({
+    queue_item_id: "q" + i, media_title: `Titel ${i + 1}`, media_artist: ARTISTS[i % 10], media_album_name: `Album ${i + 1}`,
+    media_content_id: `library://track/${i}`, media_image: art(i, "Q" + (i + 1)), duration: 200 + i * 7,
+  }));
+
+  const now = () => new Date().toISOString();
+  const player = (id, name, state, extra = {}) => ({
+    entity_id: id, state, last_changed: now(),
+    attributes: { friendly_name: name, app_id: "music_assistant", mass_player_type: "player", supported_features: 8320575,
+      group_members: [], volume_level: 0.4, shuffle: false, repeat: "off", ...extra },
+  });
+  const states = {
+    "media_player.esszimmer": player("media_player.esszimmer", "Esszimmer", "playing", {
+      media_title: "Titel 6", media_artist: "Queen", media_album_name: "A Night at the Opera", entity_picture: art(5, "♪"),
+      media_duration: 354, media_position: 40, media_position_updated_at: now() }),
+    "media_player.bad": player("media_player.bad", "Badezimmer", "idle"),
+    "media_player.schlafzimmer": player("media_player.schlafzimmer", "Schlafzimmer", "playing", {
+      media_title: "Wish You Were Here", media_artist: "Pink Floyd", entity_picture: art(3, "♫") }),
+    "media_player.hobby": player("media_player.hobby", "Hobbyraum", "idle"),
+    "media_player.soundbar": player("media_player.soundbar", "Soundbar", "off"),
+    "media_player.tv": { entity_id: "media_player.tv", state: "off", attributes: { friendly_name: "TV" } },
+  };
+  window.calls = [];
+  const card = document.createElement("ma-filter-card");
+  const hass = {
+    states, language: "de", locale: { language: "de" },
+    async callWS(msg) {
+      window.calls.push(msg);
+      await new Promise((r) => setTimeout(r, 120));
+      if (msg.type === "config_entries/get") return [{ entry_id: msg.domain + "_1", state: "loaded" }];
+      if (msg.type !== "call_service") throw new Error("unsupported " + msg.type);
+      const { domain, service, service_data: d, target } = msg;
+      const key = domain + "." + service;
+      if (key === "mass_queue.send_command") {
+        const type = PL_OF[d.command.split("/")[1]];
+        let all = Array.from({ length: LIB[type] }, (_, i) => mk(type, i));
+        if (d.data.favorite) all = all.filter((x) => x.favorite);
+        if (d.data.search) all = all.filter((x) => x.name.toLowerCase().includes(d.data.search.toLowerCase()));
+        if ((d.data.order_by || "").startsWith("timestamp_added_desc")) all.reverse();
+        return { response: { response: all.slice(d.data.offset, d.data.offset + d.data.limit) } };
+      }
+      if (key === "music_assistant.get_library") {
+        if (!d.search) return { response: { items: [] } };
+        const all = Array.from({ length: LIB[d.media_type] || 0 }, (_, i) => mk(d.media_type, i));
+        if (d.media_type === "playlist") all.forEach((x, i) => { x.name = ["70ties", "Rock Classics", "Chill", "Party", "Jazz Abend"][i % 5] + (i > 4 ? " " + i : ""); });
+        const hits = all.filter((x) => x.name.toLowerCase().includes(d.search.toLowerCase())).slice(0, d.limit)
+          .map((x) => ({ ...x, image: x.metadata.images[0]?.path || null, artists: x.artists }));
+        return { response: { items: hits } };
+      }
+      if (key === "mass_queue.get_playlist_tracks" || key === "mass_queue.get_album_tracks" || key === "mass_queue.get_artist_tracks")
+        return { response: { tracks: queue.slice(0, 10).map((q, i) => ({ ...q, position: i + 1, favorite: i % 3 === 0 })) } };
+      if (key === "mass_queue.get_queue_items") return { response: { [d.entity]: queue } };
+      if (domain === "mass_queue" && service.includes("queue_item")) {
+        const idx = queue.findIndex((q) => q.queue_item_id === d.queue_item_id);
+        if (service === "remove_queue_item") queue.splice(idx, 1);
+        if (service === "move_queue_item_up" && idx > 0) [queue[idx - 1], queue[idx]] = [queue[idx], queue[idx - 1]];
+        if (service === "move_queue_item_down" && idx < queue.length - 1) [queue[idx + 1], queue[idx]] = [queue[idx], queue[idx + 1]];
+        return {};
+      }
+      const e = target?.entity_id;
+      const upd = (id, f) => { states[id] = { ...states[id], attributes: { ...states[id].attributes }, }; f(states[id]); push(); };
+      if (key === "media_player.join") upd(e, (s) => { s.attributes.group_members = [e, ...new Set([...(s.attributes.group_members || []).filter((x) => x !== e), ...d.group_members])]; d.group_members.forEach((m) => { states[m] = { ...states[m], state: "playing", attributes: { ...states[m].attributes, media_title: states[e].attributes.media_title } }; }); });
+      if (key === "media_player.unjoin") Object.keys(states).forEach((id) => { const gm = states[id].attributes.group_members; if (gm?.includes(e) && id !== e) upd(id, (s) => { s.attributes.group_members = gm.filter((x) => x !== e); if (s.attributes.group_members.length === 1) s.attributes.group_members = []; }); });
+      if (key === "media_player.media_play_pause") upd(e, (s) => { s.state = s.state === "playing" ? "paused" : "playing"; });
+      if (key === "media_player.volume_set") upd(e, (s) => { s.attributes.volume_level = d.volume_level; });
+      if (key === "media_player.shuffle_set") upd(e, (s) => { s.attributes.shuffle = d.shuffle; });
+      if (key === "media_player.repeat_set") upd(e, (s) => { s.attributes.repeat = d.repeat; });
+      return {};
+    },
+  };
+  function push() { hass.states = { ...states }; card.hass = { ...hass, states: { ...states } }; }
+  const params = new URLSearchParams(location.search);
+  card.setConfig({
+    entity: "media_player.esszimmer",
+    sidebar: params.get("pos") ? { position: params.get("pos") } : undefined,
+    tabs: [
+      { type: "playlists" },
+      { type: "albums", name: "Rock", icon: "mdi:guitar-electric", filter: 'genre:*rock* and not artist:"Pink Floyd"' },
+      { type: "tracks", name: "Likes", filter: "favorite:true" },
+      { type: "tracks" },
+      { type: "playlist", name: "70er", uri: "library://playlist/1" },
+      { type: "recent" },
+      { type: "radio" },
+      { type: "queue" },
+    ],
+  });
+  card.hass = hass;
+  document.getElementById("wrap").appendChild(card);
+  window.card = card;
+  if (params.get("editor")) {
+    const wrap = document.getElementById("wrap");
+    wrap.style.cssText = "display:grid;grid-template-columns:minmax(320px,460px) 1fr;gap:12px;height:calc(100dvh - 16px)";
+    const pane = document.createElement("div");
+    pane.style.cssText = "overflow:auto";
+    const ed = document.createElement("ma-filter-card-editor");
+    ed.hass = hass;
+    ed.setConfig({ entity: "media_player.esszimmer", tabs: [
+      { type: "playlists" },
+      { type: "albums", name: "Rock", icon: "mdi:guitar-electric", filter: 'genre:*rock* and not artist:"Pink Floyd"' },
+      { type: "playlist", name: "70er", playlist: "70ties" },
+      { type: "queue" } ] });
+    ed.addEventListener("config-changed", (e) => { window.lastCfg = e.detail.config; try { card.setConfig(e.detail.config); card.hass = { ...hass, states: { ...states } }; } catch (err) { console.warn(err.message); } ed.setConfig(e.detail.config); });
+    pane.appendChild(ed);
+    wrap.prepend(pane);
+    window.ed = ed;
+  }
+</script>
+</body>
+</html>
