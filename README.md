@@ -12,6 +12,7 @@ Lovelace-Karte für Home Assistant, die Music Assistant steuert. Sie funktionier
 - **Tabs** mit frei definierbaren Filtern. In jedem Tab gibt es einen **Favoriten-Schalter** und eine Suche.
 - **Kacheln** mit Cover, Größe passend zum Gerät. Bei Touch werden sie größer, Schrift ab 14,5 px.
   - **Antippen** spielt genau dieses Element ab. Läuft schon etwas, fragt die Karte: Ersetzen, Als nächstes oder Hinzufügen.
+  - Bei **Alben, Playlisten und Interpreten** fragt die Karte beim Antippen: Öffnen, komplett abspielen (Warteschlange ersetzen), als nächstes oder anhängen. In einem geöffneten Album und im Tab „Titel einer Playlist“ gibt es dafür auch Knöpfe in der Werkzeugleiste.
   - **Langes Drücken oder Rechtsklick**: Direkt abspielen, Zur Warteschlange hinzufügen, Als nächstes abspielen, Radiosender daraus erstellen. Bei Album, Playlist und Interpret außerdem „Öffnen“, das die enthaltenen Titel zeigt.
   - Die Liste lädt beim Scrollen automatisch nach.
 - Im **Warteschlangen-Tab** kannst du Titel abspielen, nach oben oder unten schieben, als nächstes einreihen und entfernen. Außerdem lässt sich die ganze Warteschlange leeren.
@@ -115,6 +116,7 @@ Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:
 | `sidebar.width` | `auto` | Breite in px bei seitlicher Sidebar |
 | `sidebar.pinned` / `collapsed` | `true` / `false` | Startzustand. Danach wird der Zustand pro Gerät gespeichert. Die aufgeklappte Sidebar verdeckt nie den Hauptbereich. Ist sie nicht fixiert, klappt sie bei einem Tipp in den Hauptbereich wieder ein. |
 | `sidebar.collapsible` | `true` | `false` blendet die Pin- und Einklapp-Knöpfe aus |
+| `collection_tap` | `ask` | Antippen von Album, Playlist oder Interpret: `ask` (Menü mit Öffnen, Abspielen mit Ersetzen der Warteschlange, Als nächstes, Anhängen), `open` oder `play` |
 | `when_playing` | `ask` | Verhalten beim Antippen, wenn schon etwas läuft: `ask`, `replace`, `next`, `add`, `play` |
 | `tile_size` | `auto` | `auto` (wächst mit dem Platz bis 260 px), `small`, `medium`, `large`, `xlarge` oder eine Zahl in px |
 | `volume_step` | `5` | Schrittweite der Tasten Lauter/Leiser in Prozent |

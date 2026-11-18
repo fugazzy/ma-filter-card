@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.4.2";
+const MAFC_VERSION = "0.5.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -11,7 +11,7 @@ const STRINGS = {
     nothing_playing: "Keine Wiedergabe", idle: "Bereit", favorites: "Favoriten",
     search: "Suchen …", loading: "Lade …", no_items: "Keine Einträge gefunden",
     scanned: "durchsucht", play_now: "Direkt abspielen", play_next: "Als nächstes abspielen",
-    add_queue: "Zur Warteschlange hinzufügen", replace: "Wiedergabe ersetzen", start_radio: "Radiosender daraus erstellen",
+    add_queue: "Zur Warteschlange hinzufügen", replace: "Wiedergabe ersetzen", play_replace: "Abspielen (Warteschlange ersetzen)", play_all: "Alle abspielen", start_radio: "Radiosender daraus erstellen",
     open: "Öffnen", cancel: "Abbrechen", already_playing: "Es läuft bereits etwas",
     what_to_do: "Was soll mit der aktuellen Wiedergabe passieren?",
     group_replace_title: "spielt gerade", group_replace_text: "Die Wiedergabe dort wird durch die Gruppierung ersetzt.",
@@ -32,7 +32,7 @@ const STRINGS = {
     nothing_playing: "Nothing playing", idle: "Idle", favorites: "Favorites",
     search: "Search …", loading: "Loading …", no_items: "No items found",
     scanned: "scanned", play_now: "Play now", play_next: "Play next",
-    add_queue: "Add to queue", replace: "Replace playback", start_radio: "Start radio from this",
+    add_queue: "Add to queue", replace: "Replace playback", play_replace: "Play (replace queue)", play_all: "Play all", start_radio: "Start radio from this",
     open: "Open", cancel: "Cancel", already_playing: "Something is already playing",
     what_to_do: "What should happen to the current playback?",
     group_replace_title: "is playing", group_replace_text: "Its playback will be replaced by the group.",
@@ -337,6 +337,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         pinned: sb.pinned !== false,
         collapsible: sb.collapsible !== false,
       },
+      collection_tap: config.collection_tap || "ask", // ask | open | play  (Alben, Playlisten, Interpreten)
       when_playing: config.when_playing || "ask", // ask | replace | next | add | play
       tile_size: config.tile_size || "auto",
       page_size: config.page_size || 100,
@@ -584,6 +585,10 @@ class MusicAssistantFilterCard extends HTMLElement {
   async _play(item, enqueue = "replace", radio = false) {
     const main = this._main();
     if (!main) return;
+    // Doppelte Auslösung (Ghost-Klick, Doppeltipp) innerhalb kurzer Zeit ignorieren
+    const key = item.uri + "|" + enqueue + "|" + radio, now = Date.now();
+    if (this._lastPlay && this._lastPlay.key === key && now - this._lastPlay.t < 1500) return;
+    this._lastPlay = { key, t: now };
     const data = { media_id: item.uri, enqueue };
     if (item.media_type) data.media_type = item.media_type;
     if (radio) data.radio_mode = true;
@@ -598,6 +603,11 @@ class MusicAssistantFilterCard extends HTMLElement {
   _activateItem(item) {
     const main = this._main();
     if (!main) return;
+    if (["album", "playlist", "artist"].includes(item.media_type)) {
+      const mode = this._config.collection_tap;
+      if (mode === "open") return this._drillIn(this._activeTab, item);
+      if (mode === "ask") return this._collectionMenu(item);
+    }
     if (item.media_type === "radio" || !this._busy(main)) return this._play(item, "replace");
     const mode = this._config.when_playing;
     if (mode !== "ask") return this._play(item, mode);
@@ -611,6 +621,29 @@ class MusicAssistantFilterCard extends HTMLElement {
         { label: this._t("add_queue"), icon: "mdi:playlist-plus", run: () => this._play(item, "add") },
       ],
     });
+  }
+
+  _collectionMenu(item) {
+    const ti = this._activeTab;
+    this._dialog({
+      title: item.name, text: [item.artists?.join(", "), item.year].filter(Boolean).join(" · "), item,
+      actions: [
+        { label: this._t("open"), icon: "mdi:folder-open", primary: true, run: () => this._drillIn(ti, item) },
+        { label: this._t("play_replace"), icon: "mdi:play", run: () => this._play(item, "replace") },
+        { label: this._t("play_next"), icon: "mdi:playlist-play", run: () => this._play(item, "next") },
+        { label: this._t("add_queue"), icon: "mdi:playlist-plus", run: () => this._play(item, "add") },
+      ],
+    });
+  }
+
+  async _playList(i, enqueue) {
+    const tab = this._config.tabs[i], st = this._state(i);
+    const drill = st.stack.length ? st.stack[st.stack.length - 1] : null;
+    try {
+      const item = drill ? { uri: drill.uri, media_type: drill.kind, name: drill.name }
+        : { uri: await this._resolvePlaylistUri(tab), media_type: "playlist", name: this._tabName(tab) };
+      this._play(item, enqueue);
+    } catch (e) { this._toast(`${this._t("error")}: ${e.message || e}`, true); }
   }
 
   _itemMenu(item, tabIndex) {
@@ -793,7 +826,8 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (named[tile]) tile = named[tile];
     else if (tile === "auto") {
       const avail = (side ? w - reserve : w) - 24;
-      if (avail < 480) tile = coarse ? 118 : 120;
+      // Schmale Geräte (iPhone): 3 Spalten, ab 480 px 4 Spalten
+      if (avail < 640) { const cols = avail < 480 ? 3 : 4; tile = Math.max(90, Math.floor((avail - (cols - 1) * 12) / cols) - 1); }
       else tile = Math.round(Math.max(coarse ? 150 : 140, Math.min(260, avail / (coarse ? 6 : 7) - 12)));
     }
     root.style.setProperty("--tile", parseInt(tile, 10) + "px");
@@ -1179,6 +1213,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       const drill = st.stack.length ? st.stack[st.stack.length - 1] : null;
       bar.innerHTML = `
         ${drill ? `<button class="ib" data-tb="back" title="${esc(this._t("back"))}">${icon("mdi:arrow-left")}</button><div class="tb-title"><span>${esc(drill.name)}</span></div>` : ""}
+        ${drill || tab.type === "playlist" ? `<span class="tb-play"><button class="ib play-all" data-tb="pl-replace" title="${esc(this._t("play_replace"))}">${icon("mdi:play")}</button><button class="ib" data-tb="pl-next" title="${esc(this._t("play_next"))}">${icon("mdi:playlist-play")}</button><button class="ib" data-tb="pl-add" title="${esc(this._t("add_queue"))}">${icon("mdi:playlist-plus")}</button></span>` : ""}
         <label class="search">${icon("mdi:magnify")}<input id="search" type="search" placeholder="${esc(this._t("search"))}" value="${esc(st.search)}" enterkeyhint="search"></label>
         ${tab.show_favorites_toggle === false ? "" : `<button class="fav-toggle${st.favOnly ? " on" : ""}" data-tb="fav" title="${esc(this._t("favorites"))}">${icon(st.favOnly ? "mdi:heart" : "mdi:heart-outline")}<span>${esc(this._t("favorites"))}</span></button>`}
         <button class="ib" data-tb="refresh" title="${esc(this._t("refresh"))}">${icon("mdi:refresh")}</button>`;
@@ -1195,6 +1230,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         case "fav": st.favOnly = !st.favOnly; this._renderToolbar(); this._resetTab(i); break;
         case "refresh": tab.type === "queue" ? this._loadQueue(true) : this._resetTab(i); break;
         case "back": st.stack.pop(); this._renderToolbar(); this._resetTab(i); break;
+        case "pl-replace": case "pl-next": case "pl-add": this._playList(i, b.dataset.tb.slice(3)); break;
         case "clear": this._dialog({
           title: this._t("clear_queue"), text: "",
           actions: [{ label: this._t("clear_queue"), icon: "mdi:playlist-remove", primary: true,
@@ -1478,7 +1514,9 @@ class MusicAssistantFilterCard extends HTMLElement {
     const close = () => { ov.hidden = true; ov.innerHTML = ""; document.removeEventListener("keydown", onKey); };
     const onKey = (e) => { if (e.key === "Escape") close(); };
     document.addEventListener("keydown", onKey);
+    const opened = Date.now();
     ov.onclick = (e) => {
+      if (Date.now() - opened < 450) return; // Ghost-Klick des öffnenden Tipps (iOS) ignorieren
       if (e.target === ov) return close();
       const b = e.target.closest("[data-k]");
       if (!b) return;
@@ -1625,6 +1663,8 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .eq i:nth-child(2) { animation-delay: -.3s; } .eq i:nth-child(3) { animation-delay: -.6s; }
 @keyframes eq { 0%,100% { height:30%; } 50% { height:100%; } }
 
+.tb-play { display:flex; align-items:center; gap:2px; flex:none; }
+.tb-play .play-all { background: var(--mafc-accent); color: var(--text-primary-color, #fff); }
 .tabs { display:flex; gap:4px; padding:6px 8px; overflow-x:auto; scrollbar-width:none; flex:none; background: var(--sidebar-background-color, transparent); border-bottom:1px solid var(--divider-color, rgba(127,127,127,.2)); }
 .tab { flex:none; position:relative; display:flex; align-items:center; gap:12px; border:0; background:none; cursor:pointer; padding:0 12px; height: var(--tap); border-radius:4px;
   font-size:14px; font-weight:500; color: var(--sidebar-text-color, var(--primary-text-color)); -webkit-tap-highlight-color: transparent; }
@@ -1872,6 +1912,7 @@ class MaFilterCardEditor extends HTMLElement {
       <div class="ed">
         <details open><summary>${icon("mdi:cog")} Allgemein</summary><div class="body grid2">
           <label>Hauptplayer beim Start${this._sel('data-k="entity"', mainOpts, c.entity)}</label>
+          <label>Alben/Playlisten antippen${this._sel('data-k="collection_tap"', [["", "Nachfragen"], ["open", "Öffnen"], ["play", "Abspielen"]], c.collection_tap)}</label>
           <label>Wenn schon etwas läuft${this._sel('data-k="when_playing"', [["", "Nachfragen"], ["replace", "Ersetzen"], ["next", "Als nächstes"], ["add", "Anhängen"], ["play", "Sofort spielen"]], c.when_playing)}</label>
           <label>Sidebar-Position${this._sel('data-sb="position"', [["", "Automatisch"], ["left", "Links"], ["right", "Rechts"], ["top", "Oben"], ["bottom", "Unten"]], sb.position)}</label>
           <label>Kachelgröße${this._sel('data-k="tile_size"', [["", "Automatisch"], ["small", "Klein"], ["medium", "Mittel"], ["large", "Groß"]], c.tile_size)}</label>
