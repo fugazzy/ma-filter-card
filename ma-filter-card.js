@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.6.1";
+const MAFC_VERSION = "0.6.2";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -527,6 +527,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       _img: image, image: null, favorite: !!raw.favorite, genres: [...new Set(genres)],
       year: raw.year ?? raw.album?.year ?? null, album_type: raw.album_type, owner: raw.owner,
       providers: (raw.provider_mappings || []).map((p) => p.provider_domain),
+      mapUris: (raw.provider_mappings || []).flatMap((p) => [`${p.provider_domain}://${raw.media_type}/${p.item_id}`, `${p.provider_instance}://${raw.media_type}/${p.item_id}`]),
       duration: raw.duration,
     };
   }
@@ -689,20 +690,28 @@ class MusicAssistantFilterCard extends HTMLElement {
   async _toggleFavorite(item) {
     try {
       if (item.favorite) {
-        const ref = await this._libRef(item.uri);
+        const ref = await this._libRef(item._lib || item.uri);
         if (!ref.id) throw new Error("not in library");
         await this._mqCmd("music/favorites/remove_item", { media_type: ref.media_type, library_item_id: ref.id });
       } else await this._mqCmd("music/favorites/add_item", { item: item.uri });
       item.favorite = !item.favorite;
       this._favCache = {};
       this._toast(`${item.favorite ? "♥" : "♡"} ${this._t(item.favorite ? "liked" : "unliked")}`);
-      this._syncFavorite(item.uri, item.favorite);
+      this._syncFavorite(item.uri, item.favorite, item);
     } catch (e) { this._toast(`${this._t("error")}: ${e.message || e}`, true); }
   }
 
-  _syncFavorite(uri, fav) {
+  _syncFavorite(uri, fav, item) {
+    const keys = new Set([uri, item?._lib, item && this._nameKey(item)].filter(Boolean));
+    const hit = (x) => keys.has(x.uri) || keys.has(x._lib) || keys.has(this._nameKey(x));
+    (this._queue?.items || []).forEach((x, k) => {
+      if (!hit(x)) return;
+      x.favorite = fav;
+      const h = this.shadowRoot.querySelector(`.qrow[data-q="${k}"] .qfav`);
+      if (h) h.hidden = !fav;
+    });
     (this._tabState || []).forEach((st, i) => st?.items?.forEach((x, k) => {
-      if (x.uri !== uri) return;
+      if (!hit(x)) return;
       x.favorite = fav;
       if (i !== this._activeTab) return;
       const art = this.shadowRoot.querySelector(`.tile[data-i="${k}"] .art`);
@@ -710,7 +719,8 @@ class MusicAssistantFilterCard extends HTMLElement {
       art.querySelector(".badge")?.remove();
       if (fav) art.insertAdjacentHTML("beforeend", `<span class="badge">${icon("mdi:heart")}</span>`);
     }));
-    if (this._now && this._now.uri === uri) { this._now.favorite = fav; this._renderLike(); }
+    if (this._now && this._now !== item && hit(this._now)) { this._now.favorite = fav; this._renderLike(); }
+    if (this._now === item) this._renderLike();
   }
 
   async _favSet(media_type) {
@@ -718,24 +728,35 @@ class MusicAssistantFilterCard extends HTMLElement {
     const c = this._favCache[media_type];
     if (c && Date.now() - c.t < 120000) return c.p;
     const p = (async () => {
-      const set = new Set();
-      for (let off = 0; off < 5000; off += 500) {
+      const map = new Map(); // Schlüssel (Bibliotheks-URI, Anbieter-URI, Name|Interpret) → Bibliotheks-URI
+      for (let off = 0; off < 10000; off += 500) {
         const items = await this._fetchLibrary(media_type, { offset: off, limit: 500, favorite: true });
-        items.forEach((x) => set.add(x.uri));
+        items.forEach((x) => [x.uri, ...(x.mapUris || []), this._nameKey(x)].forEach((k) => k && map.set(k, x.uri)));
         if (items.length < 500) break;
       }
-      return set;
-    })().catch(() => new Set());
+      return map;
+    })().catch(() => new Map());
     this._favCache[media_type] = { t: Date.now(), p };
     return p;
   }
 
+  _nameKey(x) {
+    const a = (x.artists || [])[0];
+    return x.name && a ? "n:" + fold(x.name + "|" + String(a).split(/[,/&]| feat\.? /i)[0].trim()) : null;
+  }
+
+  // Favoritenstatus aus der Bibliothek übernehmen – auch für Anbieter-URIs (Playlisten, Warteschlange, laufender Titel)
   async _markFavorites(items) {
-    if (!this._entries?.mq) return items;
+    if (!this._entries) await this._resolveEntries();
+    if (!this._entries?.mq || !items.length) return items;
     const types = [...new Set(items.map((x) => x.media_type))].filter((t) => PLURAL[t]);
     for (const t of types) {
-      const set = await this._favSet(t);
-      items.forEach((x) => { if (x.media_type === t && set.has(x.uri)) x.favorite = true; });
+      const map = await this._favSet(t);
+      items.forEach((x) => {
+        if (x.media_type !== t) return;
+        const lib = map.get(x.uri) || map.get(this._nameKey(x));
+        if (lib) { x.favorite = true; x._lib = lib; }
+      });
     }
     return items;
   }
@@ -1045,6 +1066,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       ${collapsible ? `<button class="ib mini-exp" id="expBtn" title="${t("expand")}"></button>` : ""}`;
 
     this._lastPic = undefined; // neues DOM: Cover neu setzen
+    this._iconPos = null; // … und die Pfeile zum Ein-/Ausklappen
     const sb = this.$("sidebar");
     sb.addEventListener("click", (e) => {
       const b = e.target.closest("[data-cmd]");
@@ -1221,9 +1243,14 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._libRef(uri).then(async (ref) => {
       let it = ref.item;
       if (!it && ref.id) it = await this._mqCmd(`music/${PLURAL[ref.media_type] || "tracks"}/get`, { item_id: ref.id, provider_instance_id_or_domain: "library" });
-      if (this._now !== now || !it) return;
-      now.favorite = !!it.favorite; now.detail = it; now.libId = ref.id;
-      this._renderLike();
+      if (this._now !== now) return;
+      if (it) { now.favorite = !!it.favorite; now.detail = it; now.libId = ref.id; }
+      if (!now.favorite) {
+        if (it?.artists?.length) now.artists = it.artists.map((x) => x.name);
+        await this._markFavorites([now]);
+        if (now._lib && !now.libId) now.libId = /\/([^/]+)$/.exec(now._lib)?.[1];
+      }
+      if (this._now === now) this._renderLike();
     }).catch(() => {});
     this._updateQueueBadge();
   }
@@ -1747,7 +1774,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         const r = await this._svc("mass_queue", "get_queue_items",
           { entity: main, limit_before: this._config.queue_before ?? 5, limit_after: this._config.queue_limit }, null, true);
         const raw = r?.[main] || Object.values(r || {})[0] || [];
-        this._queue = { entity: main, items: raw.map((x) => this._normalize(x)) };
+        this._queue = { entity: main, items: await this._markFavorites(raw.map((x) => this._normalize(x))) };
       } catch (err) {
         content.innerHTML = `<div class="status"><div class="err">${icon("mdi:alert-circle")} ${esc(err.message || err)}</div></div>`;
         return;
@@ -1763,7 +1790,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     content.innerHTML = `<div class="qlist">${items.map((it, k) => `
       <div class="qrow" data-q="${k}">
         <div class="qart">${it.image ? `<img loading="lazy" src="${esc(it.image)}" alt="" draggable="false" onerror="this.remove()">` : ""}${icon("mdi:music-note", "ph-ic")}</div>
-        <div class="qtxt"><div class="t1">${esc(it.name)}</div><div class="t2">${esc([it.artists.join(", "), it.album].filter(Boolean).join(" · "))}</div></div>
+        <div class="qtxt"><div class="t1"><span class="qfav"${it.favorite ? "" : " hidden"}>${icon("mdi:heart")}</span>${esc(it.name)}</div><div class="t2">${esc([it.artists.join(", "), it.album].filter(Boolean).join(" · "))}</div></div>
         <span class="qdur">${fmtTime(it.duration)}</span>
         <div class="qbtns">
           <button class="ib sm" data-act="up" title="${t("move_up")}">${icon("mdi:arrow-up")}</button>
@@ -1818,6 +1845,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (!it) return;
     this._dialog({
       title: it.name, text: it.artists.join(", "), image: it.image,
+      like: this._entries?.mq ? { on: !!it.favorite, run: () => this._toggleFavorite(it) } : null,
       actions: [
         { label: this._t("play_now"), icon: "mdi:play", primary: true, run: () => this._queueAction("play", k) },
         { label: this._t("move_next"), icon: "mdi:format-vertical-align-top", run: () => this._queueAction("next", k) },
@@ -1929,6 +1957,7 @@ ha-icon { --mdc-icon-size: 22px; display:inline-flex; }
 .cover-wrap { position:relative; }
 .cover { cursor:pointer; }
 .ib.like.on, .ib.like-sheet.on { color:#ff4f7b; }
+.qfav { color:#ff4f7b; margin-right:4px; vertical-align:-2px; } .qfav ha-icon { --mdc-icon-size:15px; } .qfav[hidden] { display:none; }
 .ib[hidden] { display:none; }
 .controls .ib { flex: 0 1 auto; min-width: 0; }
 .pop-bd { position:absolute; inset:0; z-index:9; }
