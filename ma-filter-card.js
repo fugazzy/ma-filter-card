@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.6";
+const MAFC_VERSION = "0.7.7";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -672,8 +672,8 @@ class MusicAssistantFilterCard extends HTMLElement {
         { label: t("start_radio"), icon: "mdi:radio-tower", run: () => this._play(item, "replace", true) },
       );
     }
-    // Alben, Playlisten und Interpreten: Favorit auch als eigener Menüpunkt
-    if (coll && this._canLike(item)) {
+    // Favorit auch als eigener Menüpunkt (Titel, Alben, Playlisten, Interpreten, Radio)
+    if (this._canLike(item)) {
       actions.push({ label: t(item.favorite ? "fav_remove" : "fav_add"), icon: item.favorite ? "mdi:heart-off-outline" : "mdi:heart-plus-outline",
         run: () => this._toggleFavorite(item) });
     }
@@ -2006,6 +2006,8 @@ class MusicAssistantFilterCard extends HTMLElement {
         { label: this._t("move_next"), icon: "mdi:format-vertical-align-top", run: () => this._queueAction("next", k) },
         { label: this._t("start_radio"), icon: "mdi:radio-tower", run: () => this._play({ ...it, media_type: "track" }, "replace", true) },
         { label: this._t("remove"), icon: "mdi:close", run: () => this._queueAction("remove", k) },
+        ...(this._entries?.mq ? [{ label: this._t(it.favorite ? "fav_remove" : "fav_add"), icon: it.favorite ? "mdi:heart-off-outline" : "mdi:heart-plus-outline",
+          run: () => this._toggleFavorite(it) }] : []),
       ],
     });
   }
