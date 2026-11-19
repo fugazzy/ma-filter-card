@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.7";
+const MAFC_VERSION = "0.7.8";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -2120,7 +2120,7 @@ ha-icon { --mdc-icon-size: 22px; display:inline-flex; }
 .controls .ib { flex: 0 1 auto; min-width: 0; }
 .pop-bd { position:absolute; inset:0; z-index:9; }
 .pop { position:absolute; z-index:10; overflow:auto; padding:6px; border-radius:14px; display:flex; flex-direction:column; gap:2px;
-  background: var(--ha-card-background, var(--card-background-color, #fff)); color: var(--primary-text-color);
+  background: var(--mafc-popup-background, var(--primary-background-color, var(--card-background-color, #fff))); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); color: var(--primary-text-color);
   border:1px solid var(--divider-color, rgba(127,127,127,.25)); box-shadow: 0 10px 32px rgba(0,0,0,.35); }
 .pop[hidden], .pop-bd[hidden] { display:none; }
 .pop-it { display:flex; align-items:center; gap:12px; border:0; background:transparent; border-radius:10px; padding:6px 10px; min-height: var(--tap);
@@ -2330,12 +2330,12 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .compact .qbtns .ib { width:38px; min-width:38px; }
 
 /* ---------- Overlay ---------- */
-.overlay { position:absolute; inset:0; z-index:10; background: rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; padding:16px;
+.overlay { position:absolute; inset:0; z-index:10; background: rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:16px;
   animation: fade .15s ease; }
 .overlay[hidden] { display:none; }
 @keyframes fade { from { opacity:0; } }
 .sheet { width: min(420px, 100%); max-height:100%; overflow:auto; border-radius: var(--ha-dialog-border-radius, 20px); padding: 18px;
-  background: var(--ha-card-background, var(--card-background-color, #fff)); color: var(--primary-text-color); box-shadow: 0 16px 48px rgba(0,0,0,.4);
+  background: var(--mafc-popup-background, var(--primary-background-color, var(--card-background-color, #fff))); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); color: var(--primary-text-color); box-shadow: 0 16px 48px rgba(0,0,0,.4);
   animation: pop .18s ease; }
 @keyframes pop { from { transform: translateY(16px) scale(.98); opacity:.5; } }
 .sheet-head { display:flex; gap:14px; align-items:center; margin-bottom:14px; }

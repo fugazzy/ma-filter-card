@@ -207,6 +207,7 @@ filter:
 
 ## Hinweise
 
+- **Menüs** und die Player-Auswahl haben einen deckenden Hintergrund (`--primary-background-color` des Themes), auch bei halbtransparenten Kartenthemes. Die Theme-Variable `--mafc-popup-background` überschreibt ihn.
 - **Nicht-Admin-Benutzer** (z. B. Wandtablets) dürfen die Integrationsliste nicht lesen. Trage für sie `config_entry_id` und `mass_queue_entry_id` direkt ein (*Einstellungen → Geräte & Dienste → Integration → ⋮ → Eintrags-ID kopieren*).
 - **Cover**: Einige Bilder (z. B. Playlist-Collagen, lokale Dateien) liefert Music Assistant nur über seinen eigenen `/imageproxy` aus. Läuft HA über **HTTPS** und MA über **HTTP**, blockiert der Browser diese Bilder (Mixed Content). Dann erscheint ein Platzhalter-Symbol, oder du setzt `ma_url` auf eine HTTPS-Adresse.
 - **Gruppieren** nutzt `media_player.join` und `media_player.unjoin`. Ob das klappt, hängt vom Player-Typ ab (AirPlay, Chromecast und Sendspin gruppieren in MA problemlos; ein MA-Gruppenplayer als Hauptplayer kann keine weiteren Mitglieder aufnehmen).
