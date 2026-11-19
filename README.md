@@ -21,7 +21,7 @@ Lovelace-Karte für Home Assistant, die Music Assistant steuert. Sie funktionier
 ### Neu in 0.6
 
 - **Ein Menü für alles:** Antippen öffnet bei Titeln, Alben, Playlisten und Radiosendern dasselbe Menü. Langes Drücken und Rechtsklick öffnen es ebenfalls.
-- **Gefällt mir:** Herz auf dem Cover des laufenden Titels und oben rechts in jedem Menü.
+- **Gefällt mir:** Herz bei den Wiedergabe-Knöpfen (auch in der eingeklappten Sidebar) und oben rechts in jedem Menü.
 - **Songinfo:** Antippen des Covers zeigt Titel, Interpret, Album, Jahr, Dauer, Genre und Quelle.
 - **Hauptplayer-Auswahl** als Liste mit dem, was gerade läuft.
 - **Alle gruppieren** und **Alle lösen** in der Gruppierleiste.

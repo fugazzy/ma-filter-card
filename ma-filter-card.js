@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.6.0";
+const MAFC_VERSION = "0.6.1";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -867,8 +867,10 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (!this._hass || !this._config) return;
     this._built = true;
     const root = this.shadowRoot;
+    // Ohne Kartenhintergrund kein <ha-card>: Themes/UIX/card-mod können ha-card sonst einen Hintergrund aufzwingen
+    const tag = this._config.card_background ? "ha-card" : "div";
     root.innerHTML = `<style>${CSS}</style>
-      <ha-card>
+      <${tag} class="card">
         <div class="root" id="root">
           <aside class="sidebar" id="sidebar">
             <div class="sb-bg" id="sbBg"></div>
@@ -882,10 +884,12 @@ class MusicAssistantFilterCard extends HTMLElement {
             <div class="toolbar" id="toolbar"></div>
             <div class="content" id="content"></div>
           </section>
+          <div class="pop-bd" id="popBd" hidden></div>
+          <div class="pop" id="pop" hidden role="listbox"></div>
           <div class="overlay" id="overlay" hidden></div>
           <div class="toast" id="toast"></div>
         </div>
-      </ha-card>`;
+      </${tag}>`;
     this.$ = (id) => root.getElementById(id);
     this._renderSidebarSkeleton();
     this._renderTabs();
@@ -955,7 +959,6 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (sbw === "auto") sbw = Math.round(Math.max(260, Math.min(360, w * 0.32)));
     root.style.setProperty("--sb-w", sbw + "px");
     root.style.setProperty("--mini", MINI + "px");
-    this.toggleAttribute("card-bg", !!this._config.card_background);
 
     let reserve;
     if (this._ui.collapsed) reserve = MINI;
@@ -1005,8 +1008,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         <button class="select-wrap" id="playerBtn" aria-label="${t("main_player")}">${icon("mdi:speaker", "sel-ic")}<span class="sel-name" id="playerName"></span>${icon("mdi:chevron-down", "sel-chev")}</button>
         ${collapsible ? `<button class="ib" id="pinBtn"></button><button class="ib" id="colBtn" title="${t("collapse")}"></button>` : ""}
       </div>
-      <div class="cover-wrap"><div class="cover" id="cover" title="${t("song_info")}"></div>
-        <button class="ib like-btn" id="likeBtn" hidden title="${t("like")}">${icon("mdi:heart-outline")}</button></div>
+      <div class="cover-wrap"><div class="cover" id="cover" title="${t("song_info")}"></div></div>
       <div class="info">
         <div class="title" id="title"></div>
         <div class="artist" id="artist"></div>
@@ -1018,6 +1020,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         <div class="times"><span id="pos"></span><span id="dur"></span></div>
       </div>
       <div class="controls">
+        <button class="ib sm like" data-cmd="like" id="likeBtn" hidden title="${t("like")}">${icon("mdi:heart-outline")}</button>
         <button class="ib sm" data-cmd="shuffle" id="shufBtn">${icon("mdi:shuffle")}</button>
         <button class="ib" data-cmd="prev">${icon("mdi:skip-previous")}</button>
         <button class="ib play" data-cmd="playpause" id="ppBtn">${icon("mdi:play")}</button>
@@ -1035,6 +1038,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       <div class="mini-cover" id="miniCover"></div>
       <div class="mini-info"><div class="title" id="miniTitle"></div><div class="artist" id="miniArtist"></div></div>
       <div class="mini-ctl">
+        <button class="ib like" data-cmd="like" id="miniLike" hidden title="${t("like")}">${icon("mdi:heart-outline")}</button>
         <button class="ib" data-cmd="playpause" id="miniPp">${icon("mdi:play")}</button>
         <button class="ib mini-next" data-cmd="next">${icon("mdi:skip-next")}</button>
       </div>
@@ -1049,7 +1053,6 @@ class MusicAssistantFilterCard extends HTMLElement {
       else if (e.target.closest("#expBtn")) this._setCollapsed(false);
       else if (e.target.closest("#pinBtn")) this._setPinned(!this._ui.pinned);
       else if (e.target.closest("#playerBtn")) this._playerPicker();
-      else if (e.target.closest("#likeBtn")) { if (this._now) this._toggleFavorite(this._now); }
       else if (e.target.closest("#cover")) this._songInfo();
       else if (this._ui.collapsed && e.target.closest("#sbMini")) this._setCollapsed(false);
     });
@@ -1073,6 +1076,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   }
 
   async _cmd(cmd) {
+    if (cmd === "like") { if (this._now) this._toggleFavorite(this._now); return; }
     const main = this._main();
     if (!main) return;
     const s = this._hass.states[main];
@@ -1225,13 +1229,15 @@ class MusicAssistantFilterCard extends HTMLElement {
   }
 
   _renderLike() {
-    const b = this.$("likeBtn");
-    if (!b) return;
-    b.hidden = !this._now;
     const on = !!this._now?.favorite;
-    b.classList.toggle("on", on);
-    b.innerHTML = icon(on ? "mdi:heart" : "mdi:heart-outline");
-    b.title = this._t(on ? "unlike" : "like");
+    ["likeBtn", "miniLike"].forEach((id) => {
+      const b = this.$(id);
+      if (!b) return;
+      b.hidden = !this._now;
+      b.classList.toggle("on", on);
+      b.innerHTML = icon(on ? "mdi:heart" : "mdi:heart-outline");
+      b.title = this._t(on ? "unlike" : "like");
+    });
   }
 
   async _songInfo() {
@@ -1274,15 +1280,39 @@ class MusicAssistantFilterCard extends HTMLElement {
     const main = this._main();
     const list = this._players().map((p) => p.entity);
     if (main && !list.includes(main)) list.unshift(main);
-    this._dialog({
-      title: this._t("main_player"),
-      actions: list.map((e) => {
-        const st = this._hass.states[e];
-        const playing = st?.state === "playing";
-        return { label: this._pname(e), sub: this._statusText(e), active: e === main,
-          icon: playing ? "mdi:speaker-play" : "mdi:speaker", run: () => this._setMain(e) };
-      }),
-    });
+    const pop = this.$("pop"), bd = this.$("popBd"), btn = this.$("playerBtn"), root = this.$("root");
+    if (!pop.hidden) { this._closePop(); return; }
+    pop.innerHTML = list.map((e) => {
+      const st = this._hass.states[e];
+      const playing = st?.state === "playing";
+      return `<button class="pop-it${e === main ? " active" : ""}" data-e="${esc(e)}">
+        <span class="pop-ic">${playing ? `<span class="eq"><i></i><i></i><i></i></span>` : icon("mdi:speaker")}</span>
+        <span class="act-l"><span>${esc(this._pname(e))}</span><small>${esc(this._statusText(e))}</small></span>
+        ${e === main ? icon("mdi:check", "act-chk") : ""}</button>`;
+    }).join("");
+    const rr = root.getBoundingClientRect(), br = btn.getBoundingClientRect();
+    const top = br.bottom - rr.top + 6;
+    Object.assign(pop.style, { left: Math.max(6, br.left - rr.left) + "px", top: top + "px",
+      width: Math.min(rr.width - 12, Math.max(br.width, 300)) + "px", maxHeight: Math.max(160, rr.height - top - 10) + "px" });
+    pop.hidden = false; bd.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    pop.onclick = (ev) => {
+      const it = ev.target.closest("[data-e]");
+      if (!it) return;
+      this._closePop();
+      this._setMain(it.dataset.e);
+    };
+    bd.onclick = () => this._closePop();
+    this._popKey = (ev) => { if (ev.key === "Escape") this._closePop(); };
+    document.addEventListener("keydown", this._popKey);
+  }
+
+  _closePop() {
+    const pop = this.$("pop"), bd = this.$("popBd");
+    if (pop) { pop.hidden = true; pop.innerHTML = ""; }
+    if (bd) bd.hidden = true;
+    this.$("playerBtn")?.setAttribute("aria-expanded", "false");
+    if (this._popKey) document.removeEventListener("keydown", this._popKey);
   }
 
   /* ---------------- Warteschlange: dezente Anzeige am Tab ---------------- */
@@ -1854,8 +1884,8 @@ class MusicAssistantFilterCard extends HTMLElement {
 
 const CSS = `
 :host { display:block; height:100%; --mafc-accent: var(--primary-color, #03a9f4); }
-ha-card { height:100%; overflow:hidden; position:relative; background: transparent; box-shadow:none; border:none; }
-:host([card-bg]) ha-card { background: var(--ha-card-background, var(--card-background-color, #fff)); box-shadow: var(--ha-card-box-shadow, none); border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0)); }
+.card { display:block; height:100%; overflow:hidden; position:relative; background: transparent; box-shadow:none; border:none; }
+ha-card.card { background: var(--ha-card-background, var(--card-background-color, #fff)); box-shadow: var(--ha-card-box-shadow, none); border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0)); }
 * { box-sizing:border-box; }
 button { font:inherit; color:inherit; }
 ha-icon { --mdc-icon-size: 22px; display:inline-flex; }
@@ -1898,11 +1928,22 @@ ha-icon { --mdc-icon-size: 22px; display:inline-flex; }
 #pinBtn.on::before { content:""; position:absolute; inset:0; border-radius:50%; background: var(--sidebar-selected-icon-color, var(--primary-color)); opacity:.12; }
 .cover-wrap { position:relative; }
 .cover { cursor:pointer; }
-.like-btn { position:absolute; right:6px; bottom:6px; background: rgba(0,0,0,.45); color:#fff; width:40px; height:40px; min-width:40px; }
-.stack .like-btn { right:-6px; bottom:-6px; width:32px; height:32px; min-width:32px; }
-.stack .like-btn ha-icon { --mdc-icon-size:18px; }
-.ib.like-btn.on, .ib.like-sheet.on { color:#ff4f7b; }
-.like-btn[hidden] { display:none; }
+.ib.like.on, .ib.like-sheet.on { color:#ff4f7b; }
+.ib[hidden] { display:none; }
+.controls .ib { flex: 0 1 auto; min-width: 0; }
+.pop-bd { position:absolute; inset:0; z-index:9; }
+.pop { position:absolute; z-index:10; overflow:auto; padding:6px; border-radius:14px; display:flex; flex-direction:column; gap:2px;
+  background: var(--ha-card-background, var(--card-background-color, #fff)); color: var(--primary-text-color);
+  border:1px solid var(--divider-color, rgba(127,127,127,.25)); box-shadow: 0 10px 32px rgba(0,0,0,.35); }
+.pop[hidden], .pop-bd[hidden] { display:none; }
+.pop-it { display:flex; align-items:center; gap:12px; border:0; background:transparent; border-radius:10px; padding:6px 10px; min-height: var(--tap);
+  cursor:pointer; color:inherit; font:inherit; font-size:15px; text-align:left; }
+.pop-it:hover { background: rgba(127,127,127,.12); }
+.pop-it.active { position:relative; color: var(--sidebar-selected-text-color, var(--primary-color)); }
+.pop-it.active::before { content:""; position:absolute; inset:0; border-radius:inherit; background: var(--sidebar-selected-icon-color, var(--primary-color)); opacity:.12; }
+.pop-it > * { position:relative; }
+.pop-ic { width:28px; display:flex; justify-content:center; color: var(--secondary-text-color); }
+.pop-it.active .pop-ic { color: var(--sidebar-selected-icon-color, var(--primary-color)); }
 .qbadge { position:relative; min-width:18px; height:18px; padding:0 5px; border-radius:9px; font-size:11px; font-weight:600; line-height:18px; text-align:center;
   background: rgba(127,127,127,.25); color: var(--primary-text-color); }
 select { appearance:none; -webkit-appearance:none; flex:1; min-width:0; border:0; background:transparent; color:inherit; font:inherit; font-weight:600;
