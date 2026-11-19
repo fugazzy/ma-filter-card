@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.6.2";
+const MAFC_VERSION = "0.7.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -16,6 +16,7 @@ const STRINGS = {
     what_to_do: "Was soll mit der aktuellen Wiedergabe passieren?",
     group_replace_title: "spielt gerade", group_replace_text: "Die Wiedergabe dort wird durch die Gruppierung ersetzt.",
     group_join: "Gruppieren", group_leave: "Aus Gruppe lösen", make_main: "Als Hauptplayer verwenden",
+    all_players: "Alle Player", set_main: "Als Hauptplayer", join: "Gruppieren", leave: "Lösen", close: "Schließen",
     ungroup_all: "Alle lösen", group_all: "Alle gruppieren", main_player: "Hauptplayer", back: "Zurück",
     played: "Zuletzt gespielt", like: "Gefällt mir", unlike: "Gefällt mir entfernen", liked: "Gefällt mir", unliked: "Gefällt mir entfernt",
     song_info: "Songinfo", f_title: "Titel", f_artist: "Interpret", f_album: "Album", f_year: "Jahr", f_duration: "Dauer", f_genre: "Genre", f_source: "Quelle", f_player: "Player",
@@ -40,6 +41,7 @@ const STRINGS = {
     what_to_do: "What should happen to the current playback?",
     group_replace_title: "is playing", group_replace_text: "Its playback will be replaced by the group.",
     group_join: "Group", group_leave: "Remove from group", make_main: "Use as main player",
+    all_players: "All players", set_main: "Make main player", join: "Group", leave: "Ungroup", close: "Close",
     ungroup_all: "Ungroup all", group_all: "Group all", main_player: "Main player", back: "Back",
     played: "Recently played", like: "Like", unlike: "Remove like", liked: "Liked", unliked: "Like removed",
     song_info: "Song info", f_title: "Title", f_artist: "Artist", f_album: "Album", f_year: "Year", f_duration: "Duration", f_genre: "Genre", f_source: "Source", f_player: "Player",
@@ -825,6 +827,107 @@ class MusicAssistantFilterCard extends HTMLElement {
     return items;
   }
 
+  /* ---------------- Übersicht aller Player ---------------- */
+
+  _picOf(entity) {
+    const st = this._hass.states[entity];
+    if (!st || !(st.state === "playing" || st.state === "paused")) return null;
+    let p = st.attributes.entity_picture;
+    if (!p) { const l = (st.attributes.group_members || [])[0]; if (l && l !== entity) p = this._hass.states[l]?.attributes.entity_picture; }
+    return p ? (p.startsWith("/") ? this._hass.hassUrl?.(p) || p : p) : null;
+  }
+
+  _ovList() {
+    const main = this._main();
+    const list = this._players().map((p) => p.entity);
+    if (main && !list.includes(main)) list.unshift(main);
+    return list;
+  }
+
+  _openOverview() {
+    const ov = this.$("overlay");
+    this._ovOpen = true;
+    ov.innerHTML = `<div class="sheet ovw" role="dialog" aria-modal="true">
+      <div class="ovw-head"><div class="sheet-title">${esc(this._t("all_players"))}</div><span class="spacer"></span>
+        <button class="ib" data-pc="close" title="${esc(this._t("close"))}">${icon("mdi:close")}</button></div>
+      <div class="ovw-grid" id="ovwGrid"></div></div>`;
+    ov.hidden = false;
+    this._ovSig = null;
+    this._renderOverview();
+    const opened = Date.now();
+    const close = () => { this._ovOpen = false; ov.hidden = true; ov.innerHTML = ""; document.removeEventListener("keydown", onKey); };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    ov.oncontextmenu = (e) => e.preventDefault();
+    ov.onclick = (e) => {
+      if (Date.now() - opened < 450) return;
+      if (e.target === ov) return close();
+      const b = e.target.closest("[data-pc]");
+      if (!b) return;
+      if (b.dataset.pc === "close") return close();
+      const ent = b.closest("[data-e]")?.dataset.e;
+      if (!ent) return;
+      const st = this._hass.states[ent], tg = { entity_id: ent };
+      const run = (d, sv, data = {}) => this._svc(d, sv, data, tg).catch((er) => this._toast(`${this._t("error")}: ${er.message || er}`, true));
+      switch (b.dataset.pc) {
+        case "pp": run("media_player", "media_play_pause"); break;
+        case "prev": run("media_player", "media_previous_track"); break;
+        case "next": run("media_player", "media_next_track"); break;
+        case "mute": run("media_player", "volume_mute", { is_volume_muted: !st.attributes.is_volume_muted }); break;
+        case "main": this._setMain(ent); this._ovSig = null; this._renderOverview(); break;
+        case "group": this._toggleGroup(ent); break;
+      }
+    };
+    ov.onchange = (e) => {
+      const r = e.target.closest("input[data-vol]");
+      if (!r) return;
+      this._ovDrag = false;
+      this._svc("media_player", "volume_set", { volume_level: +r.value / 100 }, { entity_id: r.dataset.vol }).catch(() => {});
+    };
+    ov.oninput = (e) => { const r = e.target.closest("input[data-vol]"); if (r) { this._ovDrag = true; r.style.setProperty("--v", r.value + "%"); } };
+  }
+
+  _renderOverview() {
+    const grid = this.$("ovwGrid");
+    if (!grid || this._ovDrag) return;
+    const main = this._main(), members = this._members(main);
+    const list = this._ovList();
+    const sig = JSON.stringify([main, members, list.map((e) => { const a = this._hass.states[e]?.attributes || {};
+      return [e, this._hass.states[e]?.state, a.media_title, a.media_artist, a.entity_picture, a.volume_level, a.is_volume_muted, a.group_members]; })]);
+    if (sig === this._ovSig) return;
+    this._ovSig = sig;
+    const t = (k) => esc(this._t(k));
+    grid.innerHTML = list.map((e) => {
+      const st = this._hass.states[e];
+      if (!st) return "";
+      const a = st.attributes, active = st.state === "playing" || st.state === "paused";
+      const pic = this._picOf(e), isMain = e === main, joined = members.includes(e);
+      const vol = Math.round((a.volume_level ?? 0) * 100);
+      const leaderOf = (a.group_members || []).length > 1 && a.group_members[0] === e;
+      return `<div class="pcard${isMain ? " is-main" : ""}${st.state === "playing" ? " playing" : ""}" data-e="${esc(e)}">
+        <div class="pc-art">${pic ? `<img src="${esc(pic)}" alt="" draggable="false" onerror="this.remove()">` : ""}${icon("mdi:music", "ph-ic")}</div>
+        <div class="pc-body">
+          <div class="pc-name">${st.state === "playing" ? `<span class="eq"><i></i><i></i><i></i></span>` : icon(leaderOf ? "mdi:speaker-multiple" : "mdi:speaker")}<span>${esc(this._pname(e))}</span>
+            ${isMain ? `<span class="pc-tag">${t("main_player")}</span>` : joined ? `<span class="pc-tag">${icon("mdi:link-variant")}</span>` : ""}</div>
+          <div class="pc-t">${esc(active ? a.media_title || "" : this._statusText(e))}</div>
+          <div class="pc-a">${esc(active ? [a.media_artist, a.media_album_name].filter(Boolean).join(" · ") : "")}</div>
+          <div class="pc-ctl">
+            <button class="ib sm" data-pc="prev">${icon("mdi:skip-previous")}</button>
+            <button class="ib pc-pp" data-pc="pp">${icon(st.state === "playing" ? "mdi:pause" : "mdi:play")}</button>
+            <button class="ib sm" data-pc="next">${icon("mdi:skip-next")}</button>
+            <span class="spacer"></span>
+            ${isMain ? "" : `<button class="ib sm${joined ? " on" : ""}" data-pc="group" title="${t(joined ? "leave" : "join")}">${icon(joined ? "mdi:link-variant-off" : "mdi:link-variant-plus")}</button>
+            <button class="ib sm" data-pc="main" title="${t("set_main")}">${icon("mdi:star-outline")}</button>`}
+          </div>
+          <div class="pc-vol volume">
+            <button class="ib sm" data-pc="mute">${icon(a.is_volume_muted ? "mdi:volume-off" : vol < 35 ? "mdi:volume-low" : "mdi:volume-high")}</button>
+            <input type="range" min="0" max="100" step="1" value="${vol}" data-vol="${esc(e)}" style="--v:${vol}%" aria-label="Volume">
+            <span class="volv">${a.volume_level != null ? vol : ""}</span>
+          </div>
+        </div></div>`;
+    }).join("");
+  }
+
   /* ---------------- grouping ---------------- */
 
   _members(entity) {
@@ -1027,6 +1130,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     this.$("sbFull").innerHTML = `
       <div class="sb-head">
         <button class="select-wrap" id="playerBtn" aria-label="${t("main_player")}">${icon("mdi:speaker", "sel-ic")}<span class="sel-name" id="playerName"></span>${icon("mdi:chevron-down", "sel-chev")}</button>
+        <button class="ib ov-head" data-cmd="overview" title="${t("all_players")}">${icon("mdi:speaker-multiple")}</button>
         ${collapsible ? `<button class="ib" id="pinBtn"></button><button class="ib" id="colBtn" title="${t("collapse")}"></button>` : ""}
       </div>
       <div class="cover-wrap"><div class="cover" id="cover" title="${t("song_info")}"></div></div>
@@ -1054,7 +1158,8 @@ class MusicAssistantFilterCard extends HTMLElement {
         <input type="range" min="0" max="100" step="1" id="vol" aria-label="Volume">
         <button class="ib sm" data-cmd="volup" title="${t("vol_up")}">${icon("mdi:volume-plus")}</button>
         <span class="volv" id="volv"></span>
-      </div>`;
+      </div>
+      <button class="ov-btn" data-cmd="overview">${icon("mdi:speaker-multiple")}<span>${t("all_players")}</span>${icon("mdi:chevron-right", "ov-chev")}</button>`;
     this.$("sbMini").innerHTML = `
       <div class="mini-cover" id="miniCover"></div>
       <div class="mini-info"><div class="title" id="miniTitle"></div><div class="artist" id="miniArtist"></div></div>
@@ -1063,6 +1168,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         <button class="ib" data-cmd="playpause" id="miniPp">${icon("mdi:play")}</button>
         <button class="ib mini-next" data-cmd="next">${icon("mdi:skip-next")}</button>
       </div>
+      <button class="ib mini-ov" data-cmd="overview" title="${t("all_players")}">${icon("mdi:speaker-multiple")}</button>
       ${collapsible ? `<button class="ib mini-exp" id="expBtn" title="${t("expand")}"></button>` : ""}`;
 
     this._lastPic = undefined; // neues DOM: Cover neu setzen
@@ -1099,6 +1205,7 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   async _cmd(cmd) {
     if (cmd === "like") { if (this._now) this._toggleFavorite(this._now); return; }
+    if (cmd === "overview") { this._openOverview(); return; }
     const main = this._main();
     if (!main) return;
     const s = this._hass.states[main];
@@ -1152,6 +1259,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._updateSidebar();
     this._renderGroupBar();
     if (prevTitle !== this._lastTitle) this._updateQueueBadge();
+    if (this._ovOpen) this._renderOverview();
     if (prevTitle !== undefined && prevTitle !== this._lastTitle && this._config.tabs[this._activeTab]?.type === "queue") {
       clearTimeout(this._qT);
       this._qT = setTimeout(() => this._loadQueue(true), 600);
@@ -1859,6 +1967,7 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   _dialog({ title, text, item, image, actions, html, like, big }) {
     const ov = this.$("overlay");
+    this._ovOpen = false; ov.onchange = ov.oninput = null;
     const img = image || (item && this._image(item));
     ov.innerHTML = `<div class="sheet${big ? " big" : ""}" role="dialog" aria-modal="true">
       <div class="sheet-head">
@@ -2033,7 +2142,43 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .mini-ctl { display:flex; align-items:center; gap:2px; }
 .side .mini-ctl { flex-direction:column; }
 .mini-exp { margin-left:auto; }
-.side .mini-exp { margin: auto 0 0; }
+.side .mini-ov { margin-top:auto; }
+.ov-btn { display:flex; align-items:center; gap:10px; border:0; border-radius:12px; padding:0 12px; min-height: var(--tap); cursor:pointer;
+  background: rgba(127,127,127,.12); color: inherit; font:inherit; font-size:14px; font-weight:500; margin-top:auto; flex:none; }
+.ov-btn:hover { background: rgba(127,127,127,.2); }
+.ov-btn > span { flex:1; text-align:left; } .ov-chev { --mdc-icon-size:18px; color: var(--secondary-text-color); }
+.stack .ov-btn { display:none; } .side .ov-head { display:none; }
+.sheet.ovw { width: min(980px, 100%); max-height:100%; padding:14px 16px 16px; }
+.ovw-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; } .ovw-head .spacer { flex:1; }
+.ovw-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap:12px; }
+.pcard { display:flex; gap:12px; padding:10px; border-radius:16px; background: rgba(127,127,127,.08); border:1.5px solid transparent; min-width:0; }
+.pcard.is-main { border-color: var(--sidebar-selected-icon-color, var(--mafc-accent)); }
+.pc-art { position:relative; width:96px; height:96px; flex:none; border-radius:12px; overflow:hidden; background: rgba(127,127,127,.15);
+  display:flex; align-items:center; justify-content:center; color: var(--secondary-text-color); }
+.pc-art img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; }
+.pc-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.pc-name { display:flex; align-items:center; gap:6px; font-weight:600; font-size:15px; min-width:0; }
+.pc-name > span:not(.eq):not(.pc-tag) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pc-name ha-icon { --mdc-icon-size:18px; color: var(--secondary-text-color); }
+.pcard.playing .pc-name .eq { color: var(--accent-color, var(--mafc-accent)); }
+.pc-tag { flex:none; font-size:11px; font-weight:600; padding:1px 7px; border-radius:9px; color: var(--sidebar-selected-icon-color, var(--mafc-accent));
+  background: color-mix(in srgb, var(--sidebar-selected-icon-color, var(--mafc-accent)) 14%, transparent); display:inline-flex; align-items:center; }
+.pc-tag ha-icon { --mdc-icon-size:13px; color:inherit; }
+.pc-t { font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pc-a { font-size:12px; color: var(--secondary-text-color); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-height:15px; }
+.pc-ctl { display:flex; align-items:center; gap:2px; margin-top:2px; } .pc-ctl .spacer { flex:1; }
+.pc-pp { background: var(--mafc-accent); color: var(--text-primary-color, #fff); }
+.pc-vol { margin-top:-4px; }
+@media (max-width: 520px) {
+  .overlay:has(.ovw) { padding:8px; }
+  .sheet.ovw { padding:12px 10px; }
+  .pcard { gap:10px; padding:8px; }
+  .pc-art { width:64px; height:64px; border-radius:10px; }
+  .pc-ctl { flex-wrap:wrap; }
+  .pc-ctl .ib, .pc-vol .ib { width: calc(var(--tap) - 8px); min-width: calc(var(--tap) - 8px); height: calc(var(--tap) - 8px); }
+  .pc-vol .volv { display:none; }
+}
+.side .mini-exp { margin: 0; }
 .stack .sb-mini::after { content:""; position:absolute; left:0; bottom:0; height:3px; width: var(--pct, 0); background: var(--mafc-accent); transition: width 1s linear; }
 .pos-bottom .sb-mini::after { top:0; bottom:auto; }
 

@@ -25,6 +25,7 @@ Lovelace-Karte für Home Assistant, die Music Assistant steuert. Sie funktionier
 - **Songinfo:** Antippen des Covers zeigt Titel, Interpret, Album, Jahr, Dauer, Genre und Quelle.
 - **Hauptplayer-Auswahl** als Liste mit dem, was gerade läuft.
 - **Alle gruppieren** und **Alle lösen** in der Gruppierleiste.
+- **Alle Player** (Button unten in der Sidebar, eingeklappt als Symbol): Übersicht aller aktivierten Player mit Cover, Titel, Zurück/Play/Weiter, Lautstärke, Gruppieren und „Als Hauptplayer“.
 - Am Warteschlangen-Tab zeigt eine kleine Zahl, wie viele Titel noch folgen.
 - Standardmäßig transparenter Hintergrund, Tab-Stil und Pin-Farbe wie in der HA-Seitenleiste.
 
