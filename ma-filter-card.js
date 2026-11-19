@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.1";
+const MAFC_VERSION = "0.7.2";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -362,7 +362,8 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._ui.collapsed = saved.collapsed ?? this._config.sidebar.collapsed;
     this._ui.pinned = saved.pinned ?? this._config.sidebar.pinned;
     this._activeTab = Math.min(saved.tab ?? 0, tabs.length - 1);
-    this._mainEntity = saved.main || null;
+    // Beim Öffnen immer den konfigurierten Hauptplayer nehmen; nur ohne „entity“ den zuletzt gewählten
+    this._mainEntity = this._config.entity || this._config.main_player ? null : saved.main || null;
     this._tabState = tabs.map(() => null);
     if (this._built) this._build();
   }
@@ -381,6 +382,11 @@ class MusicAssistantFilterCard extends HTMLElement {
   getLayoutOptions() { return { grid_columns: "full", grid_rows: 10, grid_min_rows: 6 }; }
 
   connectedCallback() {
+    if (this._config?.entity && this._mainEntity && this._mainEntity !== this._config.entity) {
+      this._mainEntity = null; // erneutes Öffnen: wieder der konfigurierte Hauptplayer
+      this._lastSig = "";
+      if (this._built && this._hass) this._onHass();
+    }
     if (this._config && this._hass && !this._built) this._build();
     this._startTimers();
   }
@@ -916,6 +922,7 @@ class MusicAssistantFilterCard extends HTMLElement {
             ${isMain ? `<span class="pc-tag">${t("main_player")}</span>` : joined ? `<span class="pc-tag">${icon("mdi:link-variant")}</span>` : ""}</div>
           <div class="pc-t">${esc(active ? a.media_title || "" : this._statusText(e))}</div>
           <div class="pc-a">${esc(active ? [a.media_artist, a.media_album_name].filter(Boolean).join(" · ") : "")}</div>
+        </div>
           <div class="pc-ctl">
             <button class="ib sm" data-pc="prev">${icon("mdi:skip-previous")}</button>
             <button class="ib pc-pp" data-pc="pp">${icon(st.state === "playing" ? "mdi:pause" : "mdi:play")}</button>
@@ -929,7 +936,7 @@ class MusicAssistantFilterCard extends HTMLElement {
             <input type="range" min="0" max="100" step="1" value="${vol}" data-vol="${esc(e)}" style="--v:${vol}%" aria-label="Volume">
             <span class="volv">${a.volume_level != null ? vol : ""}</span>
           </div>
-        </div></div>`;
+        </div>`;
     }).join("");
   }
 
@@ -995,6 +1002,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   _build() {
     if (!this._hass || !this._config) return;
     this._built = true;
+    this._lastSig = ""; this._ovSig = null; this._pv = false; // neues DOM: alles neu zeichnen
     const root = this.shadowRoot;
     // Ohne Kartenhintergrund kein <ha-card>: Themes/UIX/card-mod können ha-card sonst einen Hintergrund aufzwingen
     const tag = this._config.card_background ? "ha-card" : "div";
@@ -1030,11 +1038,11 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._ro = new ResizeObserver(() => this._layout());
     this._ro.observe(this.$("root"));
     this._ro.observe(this.$("sbFull")); // Höhe der Sidebar ändert sich (Icons, Schrift, Inhalt)
-    this._ro.observe(this.$("sbFull"));
     this._applyHeight();
     this._layout();
     this._startTimers();
     this._lastSig = "";
+    this._onHass(); // Sidebar, Gruppierleiste und Cover sofort füllen
     this._resolveEntries().then(() => this._showTab(this._activeTab, true));
   }
 
@@ -1150,7 +1158,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         <div class="times"><span id="pos"></span><span id="dur"></span></div>
       </div>
       <div class="controls">
-        <button class="ib sm like" data-cmd="like" id="likeBtn" hidden title="${t("like")}">${icon("mdi:heart-outline")}</button>
+        <button class="ib sm like" data-cmd="like" id="likeBtn" disabled title="${t("like")}">${icon("mdi:heart-outline")}</button>
         <button class="ib sm" data-cmd="shuffle" id="shufBtn">${icon("mdi:shuffle")}</button>
         <button class="ib" data-cmd="prev">${icon("mdi:skip-previous")}</button>
         <button class="ib play" data-cmd="playpause" id="ppBtn">${icon("mdi:play")}</button>
@@ -1169,7 +1177,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       <div class="mini-cover" id="miniCover"></div>
       <div class="mini-info"><div class="title" id="miniTitle"></div><div class="artist" id="miniArtist"></div></div>
       <div class="mini-ctl">
-        <button class="ib like" data-cmd="like" id="miniLike" hidden title="${t("like")}">${icon("mdi:heart-outline")}</button>
+        <button class="ib like" data-cmd="like" id="miniLike" disabled title="${t("like")}">${icon("mdi:heart-outline")}</button>
         <button class="ib" data-cmd="playpause" id="miniPp">${icon("mdi:play")}</button>
         <button class="ib mini-next" data-cmd="next">${icon("mdi:skip-next")}</button>
       </div>
@@ -1374,8 +1382,9 @@ class MusicAssistantFilterCard extends HTMLElement {
     ["likeBtn", "miniLike"].forEach((id) => {
       const b = this.$(id);
       if (!b) return;
-      // in der Knopfreihe Platz behalten (Symmetrie), in der Mini-Leiste ganz ausblenden
-      if (id === "likeBtn") { b.hidden = false; b.style.visibility = this._now ? "" : "hidden"; } else b.hidden = !this._now;
+      b.hidden = false;
+      b.disabled = !this._now; // nichts Likebares: ausgegraut
+      b.style.visibility = "";
       b.classList.toggle("on", on);
       b.innerHTML = icon(on ? "mdi:heart" : "mdi:heart-outline");
       b.title = this._t(on ? "unlike" : "like");
@@ -2080,6 +2089,7 @@ ha-icon { --mdc-icon-size: 22px; display:inline-flex; }
 .cover-wrap { position:relative; }
 .cover { cursor:pointer; }
 .ib.like.on, .ib.like-sheet.on { color:#ff4f7b; }
+.ib:disabled { opacity:.35; cursor:default; pointer-events:none; }
 .qfav { color:#ff4f7b; margin-right:4px; vertical-align:-2px; } .qfav ha-icon { --mdc-icon-size:15px; } .qfav[hidden] { display:none; }
 .ib[hidden] { display:none; }
 .controls .ib { flex: 0 1 auto; min-width: 0; }
@@ -2163,8 +2173,10 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .ov-btn:hover { background: rgba(127,127,127,.2); }
 .ov-btn > span { flex:1; text-align:left; } .ov-chev { --mdc-icon-size:18px; color: var(--secondary-text-color); }
 .stack .ov-btn { display:none; } .side .ov-head { display:none; }
-.ovw-grid { padding-top:8px; display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap:12px; }
-.pcard { display:flex; gap:12px; padding:10px; border-radius:16px; background: rgba(127,127,127,.08); border:1.5px solid transparent; min-width:0; }
+.ovw-grid { padding-top:8px; display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:14px; }
+.pcard { display:grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art info" "ctl ctl" "vol vol"; gap:6px 14px;
+  padding:12px; border-radius:16px; background: rgba(127,127,127,.08); border:1.5px solid transparent; min-width:0; }
+.pc-art { grid-area: art; } .pc-body { grid-area: info; justify-content:center; } .pc-ctl { grid-area: ctl; } .pc-vol { grid-area: vol; }
 .pcard.is-main { border-color: var(--sidebar-selected-icon-color, var(--mafc-accent)); }
 .pc-art { position:relative; width:96px; height:96px; flex:none; border-radius:12px; overflow:hidden; background: rgba(127,127,127,.15);
   display:flex; align-items:center; justify-content:center; color: var(--secondary-text-color); }
@@ -2179,14 +2191,13 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .pc-tag ha-icon { --mdc-icon-size:13px; color:inherit; }
 .pc-t { font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pc-a { font-size:12px; color: var(--secondary-text-color); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-height:15px; }
-.pc-ctl { display:flex; align-items:center; gap:2px; margin-top:2px; } .pc-ctl .spacer { flex:1; }
+.pc-ctl { display:flex; align-items:center; gap:4px; } .pc-ctl .spacer { flex:1; }
+.pc-name { font-size:16px; } .pc-t { font-size:15px; } .pc-a { font-size:13px; }
 .pc-pp { background: var(--mafc-accent); color: var(--text-primary-color, #fff); }
-.pc-vol { margin-top:-4px; }
+.pc-vol { margin-top:-6px; }
 @media (max-width: 520px) {
   .pcard { gap:10px; padding:8px; }
   .pc-art { width:64px; height:64px; border-radius:10px; }
-  .pc-ctl { flex-wrap:wrap; }
-  .pc-ctl .ib, .pc-vol .ib { width: calc(var(--tap) - 8px); min-width: calc(var(--tap) - 8px); height: calc(var(--tap) - 8px); }
   .pc-vol .volv { display:none; }
 }
 .side .mini-exp { margin: 0; }
