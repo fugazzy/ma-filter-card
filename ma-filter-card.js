@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.5.0";
+const MAFC_VERSION = "0.6.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -16,7 +16,10 @@ const STRINGS = {
     what_to_do: "Was soll mit der aktuellen Wiedergabe passieren?",
     group_replace_title: "spielt gerade", group_replace_text: "Die Wiedergabe dort wird durch die Gruppierung ersetzt.",
     group_join: "Gruppieren", group_leave: "Aus Gruppe lösen", make_main: "Als Hauptplayer verwenden",
-    ungroup_all: "Alle lösen", main_player: "Hauptplayer", back: "Zurück",
+    ungroup_all: "Alle lösen", group_all: "Alle gruppieren", main_player: "Hauptplayer", back: "Zurück",
+    played: "Zuletzt gespielt", like: "Gefällt mir", unlike: "Gefällt mir entfernen", liked: "Gefällt mir", unliked: "Gefällt mir entfernt",
+    song_info: "Songinfo", f_title: "Titel", f_artist: "Interpret", f_album: "Album", f_year: "Jahr", f_duration: "Dauer", f_genre: "Genre", f_source: "Quelle", f_player: "Player",
+    queue_upcoming: "Titel in der Warteschlange", group_all_q: "Andere Player spielen gerade. Ihre Wiedergabe wird ersetzt.",
     collapse: "Einklappen", expand: "Ausklappen", pin: "Fixieren", unpin: "Lösen (klappt automatisch ein)", mute: "Stumm", vol_down: "Leiser", vol_up: "Lauter",
     queue_needs_mq: "Für die Warteschlange wird die Integration „mass_queue“ benötigt.",
     queue_empty: "Die Warteschlange ist leer.", clear_queue: "Warteschlange leeren",
@@ -37,7 +40,10 @@ const STRINGS = {
     what_to_do: "What should happen to the current playback?",
     group_replace_title: "is playing", group_replace_text: "Its playback will be replaced by the group.",
     group_join: "Group", group_leave: "Remove from group", make_main: "Use as main player",
-    ungroup_all: "Ungroup all", main_player: "Main player", back: "Back",
+    ungroup_all: "Ungroup all", group_all: "Group all", main_player: "Main player", back: "Back",
+    played: "Recently played", like: "Like", unlike: "Remove like", liked: "Liked", unliked: "Like removed",
+    song_info: "Song info", f_title: "Title", f_artist: "Artist", f_album: "Album", f_year: "Year", f_duration: "Duration", f_genre: "Genre", f_source: "Source", f_player: "Player",
+    queue_upcoming: "tracks in queue", group_all_q: "Other players are playing. Their playback will be replaced.",
     collapse: "Collapse", expand: "Expand", pin: "Pin", unpin: "Unpin (auto-collapse)", mute: "Mute", vol_down: "Volume down", vol_up: "Volume up",
     queue_needs_mq: "The queue editor requires the “mass_queue” integration.",
     queue_empty: "The queue is empty.", clear_queue: "Clear queue",
@@ -59,6 +65,7 @@ const TAB_TYPES = {
   recent: { media_type: "album", icon: "mdi:new-box", order_by: "timestamp_added_desc" },
   radio: { media_type: "radio", icon: "mdi:radio", order_by: "name" },
   playlist: { media_type: "track", icon: "mdi:playlist-play" },
+  played: { media_type: "track", icon: "mdi:history" },
   queue: { icon: "mdi:playlist-edit" },
 };
 const PLURAL = { album: "albums", track: "tracks", playlist: "playlists", radio: "radios", artist: "artists" };
@@ -337,6 +344,8 @@ class MusicAssistantFilterCard extends HTMLElement {
         pinned: sb.pinned !== false,
         collapsible: sb.collapsible !== false,
       },
+      track_tap: config.track_tap || "menu", // menu | play  (Titel, Radiosender)
+      card_background: !!config.card_background,
       collection_tap: config.collection_tap || "ask", // ask | open | play  (Alben, Playlisten, Interpreten)
       when_playing: config.when_playing || "ask", // ask | replace | next | add | play
       tile_size: config.tile_size || "auto",
@@ -597,6 +606,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       const label = { replace: "▶", play: "▶", next: "⤵", add: "+", replace_next: "⤵" }[enqueue] || "▶";
       this._toast(`${label} ${item.name}`);
       if (this._config.tabs[this._activeTab]?.type === "queue") setTimeout(() => this._loadQueue(true), 800);
+      setTimeout(() => this._updateQueueBadge(), 1200);
     } catch (e) { this._toast(`${this._t("error")}: ${e.message || e}`, true); }
   }
 
@@ -606,8 +616,8 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (["album", "playlist", "artist"].includes(item.media_type)) {
       const mode = this._config.collection_tap;
       if (mode === "open") return this._drillIn(this._activeTab, item);
-      if (mode === "ask") return this._collectionMenu(item);
-    }
+      if (mode !== "play") return this._itemMenu(item, this._activeTab);
+    } else if (this._config.track_tap !== "play") return this._itemMenu(item, this._activeTab);
     if (item.media_type === "radio" || !this._busy(main)) return this._play(item, "replace");
     const mode = this._config.when_playing;
     if (mode !== "ask") return this._play(item, mode);
@@ -617,19 +627,6 @@ class MusicAssistantFilterCard extends HTMLElement {
       item,
       actions: [
         { label: this._t("replace"), icon: "mdi:play", primary: true, run: () => this._play(item, "replace") },
-        { label: this._t("play_next"), icon: "mdi:playlist-play", run: () => this._play(item, "next") },
-        { label: this._t("add_queue"), icon: "mdi:playlist-plus", run: () => this._play(item, "add") },
-      ],
-    });
-  }
-
-  _collectionMenu(item) {
-    const ti = this._activeTab;
-    this._dialog({
-      title: item.name, text: [item.artists?.join(", "), item.year].filter(Boolean).join(" · "), item,
-      actions: [
-        { label: this._t("open"), icon: "mdi:folder-open", primary: true, run: () => this._drillIn(ti, item) },
-        { label: this._t("play_replace"), icon: "mdi:play", run: () => this._play(item, "replace") },
         { label: this._t("play_next"), icon: "mdi:playlist-play", run: () => this._play(item, "next") },
         { label: this._t("add_queue"), icon: "mdi:playlist-plus", run: () => this._play(item, "add") },
       ],
@@ -647,20 +644,164 @@ class MusicAssistantFilterCard extends HTMLElement {
   }
 
   _itemMenu(item, tabIndex) {
-    const actions = [
-      { label: this._t("play_now"), icon: "mdi:play", primary: true, run: () => this._play(item, "play") },
-    ];
-    if (item.media_type !== "radio") {
+    const coll = ["album", "playlist", "artist"].includes(item.media_type);
+    const t = (k) => this._t(k);
+    let actions;
+    if (item.media_type === "radio") actions = [{ label: t("play_now"), icon: "mdi:play", primary: true, run: () => this._play(item, "play") }];
+    else {
+      actions = coll
+        ? [{ label: t("open"), icon: "mdi:folder-open", primary: true, run: () => this._drillIn(tabIndex, item) },
+          { label: t("play_replace"), icon: "mdi:play", run: () => this._play(item, "replace") }]
+        : [{ label: t("play_now"), icon: "mdi:play", primary: true, run: () => this._play(item, "play") },
+          { label: t("play_replace"), icon: "mdi:playlist-remove", run: () => this._play(item, "replace") }];
       actions.push(
-        { label: this._t("add_queue"), icon: "mdi:playlist-plus", run: () => this._play(item, "add") },
-        { label: this._t("play_next"), icon: "mdi:playlist-play", run: () => this._play(item, "next") },
-        { label: this._t("start_radio"), icon: "mdi:radio-tower", run: () => this._play(item, "replace", true) },
+        { label: t("play_next"), icon: "mdi:playlist-play", run: () => this._play(item, "next") },
+        { label: t("add_queue"), icon: "mdi:playlist-plus", run: () => this._play(item, "add") },
+        { label: t("start_radio"), icon: "mdi:radio-tower", run: () => this._play(item, "replace", true) },
       );
     }
-    if (["album", "playlist", "artist"].includes(item.media_type)) {
-      actions.push({ label: this._t("open"), icon: "mdi:folder-open", run: () => this._drillIn(tabIndex, item) });
+    this._dialog({
+      title: item.name, text: [(item.artists || []).join(", "), item.album, item.year].filter(Boolean).join(" · "), item, actions,
+      like: this._canLike(item) ? { on: !!item.favorite, run: () => this._toggleFavorite(item) } : null,
+    });
+  }
+
+  /* ---------------- favorites (Gefällt mir) ---------------- */
+
+  _canLike(item) { return !!item?.uri && !!this._entries?.mq; }
+
+  async _mqCmd(command, data = {}) {
+    const e = await this._resolveEntries();
+    if (!e.mq) throw new Error(this._t("queue_needs_mq"));
+    const r = await this._svc("mass_queue", "send_command", { config_entry_id: e.mq, command, data }, null, true);
+    return r?.response;
+  }
+
+  async _libRef(uri) {
+    const m = /^library:\/\/([a-z]+)\/(.+)$/.exec(uri || "");
+    if (m) return { media_type: m[1], id: m[2] };
+    const it = await this._mqCmd("music/item_by_uri", { uri });
+    if (it?.provider === "library") return { media_type: it.media_type, id: it.item_id, item: it };
+    const lib = (it?.provider_mappings || []).length && it?.item_id && it?.provider === "library" ? it.item_id : null;
+    return lib ? { media_type: it.media_type, id: lib, item: it } : { media_type: it?.media_type, id: null, item: it };
+  }
+
+  async _toggleFavorite(item) {
+    try {
+      if (item.favorite) {
+        const ref = await this._libRef(item.uri);
+        if (!ref.id) throw new Error("not in library");
+        await this._mqCmd("music/favorites/remove_item", { media_type: ref.media_type, library_item_id: ref.id });
+      } else await this._mqCmd("music/favorites/add_item", { item: item.uri });
+      item.favorite = !item.favorite;
+      this._favCache = {};
+      this._toast(`${item.favorite ? "♥" : "♡"} ${this._t(item.favorite ? "liked" : "unliked")}`);
+      this._syncFavorite(item.uri, item.favorite);
+    } catch (e) { this._toast(`${this._t("error")}: ${e.message || e}`, true); }
+  }
+
+  _syncFavorite(uri, fav) {
+    (this._tabState || []).forEach((st, i) => st?.items?.forEach((x, k) => {
+      if (x.uri !== uri) return;
+      x.favorite = fav;
+      if (i !== this._activeTab) return;
+      const art = this.shadowRoot.querySelector(`.tile[data-i="${k}"] .art`);
+      if (!art) return;
+      art.querySelector(".badge")?.remove();
+      if (fav) art.insertAdjacentHTML("beforeend", `<span class="badge">${icon("mdi:heart")}</span>`);
+    }));
+    if (this._now && this._now.uri === uri) { this._now.favorite = fav; this._renderLike(); }
+  }
+
+  async _favSet(media_type) {
+    this._favCache = this._favCache || {};
+    const c = this._favCache[media_type];
+    if (c && Date.now() - c.t < 120000) return c.p;
+    const p = (async () => {
+      const set = new Set();
+      for (let off = 0; off < 5000; off += 500) {
+        const items = await this._fetchLibrary(media_type, { offset: off, limit: 500, favorite: true });
+        items.forEach((x) => set.add(x.uri));
+        if (items.length < 500) break;
+      }
+      return set;
+    })().catch(() => new Set());
+    this._favCache[media_type] = { t: Date.now(), p };
+    return p;
+  }
+
+  async _markFavorites(items) {
+    if (!this._entries?.mq) return items;
+    const types = [...new Set(items.map((x) => x.media_type))].filter((t) => PLURAL[t]);
+    for (const t of types) {
+      const set = await this._favSet(t);
+      items.forEach((x) => { if (x.media_type === t && set.has(x.uri)) x.favorite = true; });
     }
-    this._dialog({ title: item.name, text: [item.artists?.join(", "), item.album].filter(Boolean).join(" · "), item, actions });
+    return items;
+  }
+
+  /* ---------------- genres (über die Genre-Zuordnung von MA) ---------------- */
+
+  _genreConds(ast, out = []) {
+    if (!ast) return out;
+    if (ast.and || ast.or) (ast.and || ast.or).forEach((a) => this._genreConds(a, out));
+    else if (ast.not) this._genreConds(ast.not, out);
+    else if (ast.field === "genre") out.push(ast);
+    return out;
+  }
+
+  async _genreList() {
+    if (!this._genresP) {
+      this._genresP = (async () => {
+        const all = [];
+        for (let off = 0; off < 5000; off += 500) {
+          const r = await this._mqCmd("music/genres/library_items", { limit: 500, offset: off });
+          all.push(...(r || []));
+          if (!r || r.length < 500) break;
+        }
+        return all;
+      })().catch((e) => { this._genresP = null; throw e; });
+    }
+    return this._genresP;
+  }
+
+  // Liefert Map uri → [Genre-Namen] für alle Genres, die eine Genre-Bedingung des Filters erfüllen
+  async _genreMap(tab, media_type) {
+    if (!["album", "track"].includes(media_type) || !this._entries?.mq) return null;
+    const conds = this._genreConds(tab._ast);
+    if (!conds.length) return null;
+    const key = media_type + "|" + JSON.stringify(conds);
+    this._genreMaps = this._genreMaps || {};
+    if (this._genreMaps[key]) return this._genreMaps[key];
+    const p = (async () => {
+      const genres = await this._genreList();
+      const ids = new Map();
+      for (const c of conds) {
+        const hit = genres.filter((g) => evalFilter({ field: "genre", op: c.op === "!=" ? "=" : c.op, value: c.value }, { genres: [g.name] }));
+        if (hit.length) hit.forEach((g) => ids.set(g.item_id, g.name));
+        else {
+          const q = String(c.value).replace(/[*?\/]/g, " ").trim();
+          if (q) (await this._mqCmd("music/genres/library_items", { limit: 50, offset: 0, search: q }) || []).forEach((g) => ids.set(g.item_id, g.name));
+        }
+      }
+      const map = new Map();
+      for (const [id, name] of ids) {
+        for (let off = 0; off < 20000; off += 500) {
+          const r = await this._mqCmd(`music/genres/${PLURAL[media_type]}`, { item_id: id, limit: 500, offset: off }) || [];
+          r.forEach((x) => { const l = map.get(x.uri) || []; l.push(name); map.set(x.uri, l); });
+          if (r.length < 500) break;
+        }
+      }
+      return map;
+    })();
+    this._genreMaps[key] = p;
+    p.catch(() => { delete this._genreMaps[key]; });
+    return p;
+  }
+
+  _applyGenres(items, map) {
+    if (map) items.forEach((x) => { const g = map.get(x.uri); if (g) x.genres = [...new Set([...(x.genres || []), ...g])]; });
+    return items;
   }
 
   /* ---------------- grouping ---------------- */
@@ -755,6 +896,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._ro?.disconnect();
     this._ro = new ResizeObserver(() => this._layout());
     this._ro.observe(this.$("root"));
+    this._ro.observe(this.$("sbFull")); // Höhe der Sidebar ändert sich (Icons, Schrift, Inhalt)
     this._ro.observe(this.$("sbFull"));
     this._applyHeight();
     this._layout();
@@ -813,6 +955,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (sbw === "auto") sbw = Math.round(Math.max(260, Math.min(360, w * 0.32)));
     root.style.setProperty("--sb-w", sbw + "px");
     root.style.setProperty("--mini", MINI + "px");
+    this.toggleAttribute("card-bg", !!this._config.card_background);
 
     let reserve;
     if (this._ui.collapsed) reserve = MINI;
@@ -859,12 +1002,11 @@ class MusicAssistantFilterCard extends HTMLElement {
     const collapsible = this._config.sidebar.collapsible;
     this.$("sbFull").innerHTML = `
       <div class="sb-head">
-        <div class="select-wrap">${icon("mdi:speaker", "sel-ic")}
-          <select id="playerSel" aria-label="${t("main_player")}"></select>
-        </div>
+        <button class="select-wrap" id="playerBtn" aria-label="${t("main_player")}">${icon("mdi:speaker", "sel-ic")}<span class="sel-name" id="playerName"></span>${icon("mdi:chevron-down", "sel-chev")}</button>
         ${collapsible ? `<button class="ib" id="pinBtn"></button><button class="ib" id="colBtn" title="${t("collapse")}"></button>` : ""}
       </div>
-      <div class="cover-wrap"><div class="cover" id="cover"></div></div>
+      <div class="cover-wrap"><div class="cover" id="cover" title="${t("song_info")}"></div>
+        <button class="ib like-btn" id="likeBtn" hidden title="${t("like")}">${icon("mdi:heart-outline")}</button></div>
       <div class="info">
         <div class="title" id="title"></div>
         <div class="artist" id="artist"></div>
@@ -898,6 +1040,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       </div>
       ${collapsible ? `<button class="ib mini-exp" id="expBtn" title="${t("expand")}"></button>` : ""}`;
 
+    this._lastPic = undefined; // neues DOM: Cover neu setzen
     const sb = this.$("sidebar");
     sb.addEventListener("click", (e) => {
       const b = e.target.closest("[data-cmd]");
@@ -905,13 +1048,16 @@ class MusicAssistantFilterCard extends HTMLElement {
       if (e.target.closest("#colBtn")) this._setCollapsed(true);
       else if (e.target.closest("#expBtn")) this._setCollapsed(false);
       else if (e.target.closest("#pinBtn")) this._setPinned(!this._ui.pinned);
-      else if (this._ui.collapsed && e.target.closest(".mini-cover, .mini-info")) this._setCollapsed(false);
+      else if (e.target.closest("#playerBtn")) this._playerPicker();
+      else if (e.target.closest("#likeBtn")) { if (this._now) this._toggleFavorite(this._now); }
+      else if (e.target.closest("#cover")) this._songInfo();
+      else if (this._ui.collapsed && e.target.closest("#sbMini")) this._setCollapsed(false);
     });
-    this.$("playerSel").addEventListener("change", (e) => this._setMain(e.target.value));
     const vol = this.$("vol");
     vol.addEventListener("pointerdown", () => { this._volDrag = true; });
     vol.addEventListener("input", () => {
       this.$("volv").textContent = vol.value;
+      vol.style.setProperty("--v", vol.value + "%");
       clearTimeout(this._volT);
       this._volT = setTimeout(() => this._setVolume(vol.value / 100), 250);
     });
@@ -965,10 +1111,12 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (!this._built) return;
     const main = this._main();
     const players = this._players();
-    const sig = JSON.stringify([main, players.map((p) => {
-      const s = this._hass.states[p.entity];
+    const ents = [...new Set([main, ...players.map((p) => p.entity)].filter(Boolean))];
+    const sig = JSON.stringify([main, ents.map((e) => {
+      const s = this._hass.states[e];
+      if (!s) return e;
       const a = s.attributes;
-      return [p.entity, s.state, a.media_title, a.media_artist, a.entity_picture, a.group_members, a.volume_level, a.is_volume_muted, a.shuffle, a.repeat, a.media_position_updated_at, a.media_duration];
+      return [e, s.state, a.media_title, a.media_content_id, a.media_artist, a.entity_picture, a.group_members, a.volume_level, a.is_volume_muted, a.shuffle, a.repeat, a.media_position_updated_at, a.media_duration];
     })]);
     if (sig === this._lastSig) return;
     const prevTitle = this._lastTitle;
@@ -977,6 +1125,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._lastTitle = ms ? `${ms.attributes.media_title}|${ms.attributes.media_content_id}` : "";
     this._updateSidebar();
     this._renderGroupBar();
+    if (prevTitle !== this._lastTitle) this._updateQueueBadge();
     if (prevTitle !== undefined && prevTitle !== this._lastTitle && this._config.tabs[this._activeTab]?.type === "queue") {
       clearTimeout(this._qT);
       this._qT = setTimeout(() => this._loadQueue(true), 600);
@@ -988,27 +1137,37 @@ class MusicAssistantFilterCard extends HTMLElement {
   _updateSidebar() {
     if (!this._built) return;
     const main = this._main();
-    const sel = this.$("playerSel");
-    const players = this._players();
     if (!main) {
       this.$("title").textContent = this._t("no_player");
       return;
     }
-    const opts = players.map((p) => `<option value="${esc(p.entity)}"${p.entity === main ? " selected" : ""}>${esc(this._pname(p.entity))}</option>`).join("");
-    if (sel._opts !== opts) { sel._opts = opts; sel.innerHTML = opts; }
-    sel.value = main;
+    this.$("playerName").textContent = this._pname(main);
 
     const s = this._hass.states[main];
     const a = s.attributes;
     const active = s.state === "playing" || s.state === "paused";
-    const pic = a.entity_picture ? (a.entity_picture.startsWith("/") ? this._hass.hassUrl?.(a.entity_picture) || a.entity_picture : a.entity_picture) : null;
-    const coverHtml = pic ? `<img src="${esc(pic)}" alt="" draggable="false">` : `<div class="ph">${icon("mdi:music")}</div>`;
+    // Bild: eigenes entity_picture, sonst das des Gruppen-Leiters
+    let rawPic = active ? a.entity_picture : null;
+    if (active && !rawPic) {
+      const leader = (a.group_members || [])[0];
+      if (leader && leader !== main) rawPic = this._hass.states[leader]?.attributes.entity_picture;
+    }
+    const pic = rawPic ? (rawPic.startsWith("/") ? this._hass.hassUrl?.(rawPic) || rawPic : rawPic) : null;
     if (this._lastPic !== pic) {
       this._lastPic = pic;
-      this.$("cover").innerHTML = coverHtml;
-      this.$("miniCover").innerHTML = coverHtml;
+      const ph = `<div class="ph">${icon("mdi:music")}</div>`;
+      ["cover", "miniCover"].forEach((id) => {
+        const el = this.$(id);
+        if (!pic) { el.innerHTML = ph; return; }
+        const img = new Image();
+        img.alt = ""; img.draggable = false;
+        img.onerror = () => { el.innerHTML = ph; if (this._lastPic === pic) this._lastPic = null; };
+        img.src = pic;
+        el.replaceChildren(img);
+      });
       this.$("sbBg").style.backgroundImage = pic ? `url("${pic.replace(/"/g, "%22")}")` : "none";
     }
+    this._updateNow(main, s);
     const title = active ? a.media_title || this._pname(main) : this._t("nothing_playing");
     const artist = active ? a.media_artist || "" : this._pname(main);
     this.$("title").textContent = title;
@@ -1030,6 +1189,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (!this._volDrag && this._volPending == null && a.volume_level != null) {
       const v = Math.round(a.volume_level * 100);
       this.$("vol").value = v;
+      this.$("vol").style.setProperty("--v", v + "%");
       this.$("volv").textContent = v;
     }
     const pin = this.$("pinBtn");
@@ -1040,6 +1200,110 @@ class MusicAssistantFilterCard extends HTMLElement {
     }
     this._updateProgress();
     requestAnimationFrame(() => this._layout());
+  }
+
+  /* ---------------- aktueller Titel: Gefällt mir, Songinfo ---------------- */
+
+  _updateNow(main, s) {
+    const a = s.attributes;
+    const active = s.state === "playing" || s.state === "paused";
+    const uri = active ? a.media_content_id : null;
+    if (uri && !this._entries) { this._resolveEntries().then(() => { const st = this._hass.states[this._main()]; if (st) this._updateNow(this._main(), st); }); return; }
+    if (!uri || !this._entries?.mq) { this._now = null; this._renderLike(); return; }
+    if (this._now?.uri === uri) return;
+    this._now = { uri, name: a.media_title, artists: a.media_artist ? [a.media_artist] : [], album: a.media_album_name, favorite: false, media_type: "track" };
+    this._renderLike();
+    const now = this._now;
+    this._libRef(uri).then(async (ref) => {
+      let it = ref.item;
+      if (!it && ref.id) it = await this._mqCmd(`music/${PLURAL[ref.media_type] || "tracks"}/get`, { item_id: ref.id, provider_instance_id_or_domain: "library" });
+      if (this._now !== now || !it) return;
+      now.favorite = !!it.favorite; now.detail = it; now.libId = ref.id;
+      this._renderLike();
+    }).catch(() => {});
+    this._updateQueueBadge();
+  }
+
+  _renderLike() {
+    const b = this.$("likeBtn");
+    if (!b) return;
+    b.hidden = !this._now;
+    const on = !!this._now?.favorite;
+    b.classList.toggle("on", on);
+    b.innerHTML = icon(on ? "mdi:heart" : "mdi:heart-outline");
+    b.title = this._t(on ? "unlike" : "like");
+  }
+
+  async _songInfo() {
+    const main = this._main();
+    const s = main && this._hass.states[main];
+    if (!s || !(s.state === "playing" || s.state === "paused")) return;
+    const a = s.attributes, now = this._now, d = now?.detail;
+    let genres = [];
+    if (now?.libId && this._entries?.mq) {
+      try {
+        const g = await this._mqCmd("music/genres/genres_for_media_item", { media_type: "track", media_id: now.libId });
+        genres = (g || []).map((x) => x.name || x).filter(Boolean);
+        if (!genres.length && d?.album?.item_id) {
+          const al = await this._mqCmd("music/albums/get", { item_id: d.album.item_id, provider_instance_id_or_domain: d.album.provider || "library" });
+          genres = al?.metadata?.genres || [];
+        }
+      } catch (e) { /* ohne Genre */ }
+    }
+    const t = (k) => this._t(k);
+    const rows = [
+      [t("f_title"), a.media_title + (d?.version ? ` (${d.version})` : "")],
+      [t("f_artist"), d?.artists?.map((x) => x.name).join(", ") || a.media_artist],
+      [t("f_album"), d?.album?.name || a.media_album_name],
+      [t("f_year"), d?.album?.year || d?.year],
+      [t("f_duration"), fmtTime(d?.duration || a.media_duration)],
+      [t("f_genre"), genres.join(", ")],
+      [t("f_source"), [...new Set((d?.provider_mappings || []).map((m) => m.provider_domain.replace(/_/g, " ")))].join(", ")],
+      [t("f_player"), this._pname(main)],
+    ].filter((r) => r[1]);
+    const actions = [];
+    if (now?.uri) actions.push({ label: t("start_radio"), icon: "mdi:radio-tower", run: () => this._play({ uri: now.uri, name: now.name, media_type: "track" }, "replace", true) });
+    this._dialog({
+      title: t("song_info"), image: this._lastPic || null,
+      html: `<dl class="info-rows">${rows.map((r) => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join("")}</dl>`,
+      actions, like: now && this._entries?.mq ? { on: !!now.favorite, run: () => this._toggleFavorite(now) } : null, big: true,
+    });
+  }
+
+  _playerPicker() {
+    const main = this._main();
+    const list = this._players().map((p) => p.entity);
+    if (main && !list.includes(main)) list.unshift(main);
+    this._dialog({
+      title: this._t("main_player"),
+      actions: list.map((e) => {
+        const st = this._hass.states[e];
+        const playing = st?.state === "playing";
+        return { label: this._pname(e), sub: this._statusText(e), active: e === main,
+          icon: playing ? "mdi:speaker-play" : "mdi:speaker", run: () => this._setMain(e) };
+      }),
+    });
+  }
+
+  /* ---------------- Warteschlange: dezente Anzeige am Tab ---------------- */
+
+  _updateQueueBadge() {
+    const qi = this._config.tabs.findIndex((t) => t.type === "queue");
+    const main = this._main();
+    if (qi < 0 || !main) return;
+    clearTimeout(this._qbT);
+    this._qbT = setTimeout(async () => {
+      let n = 0;
+      try {
+        const r = await this._svc("music_assistant", "get_queue", {}, { entity_id: main }, true);
+        const q = r?.[main] || Object.values(r || {})[0];
+        if (q) n = Math.max(0, (q.items || 0) - (q.current_index == null ? 0 : q.current_index + 1));
+      } catch (e) { return; }
+      const tab = this.shadowRoot.querySelector(`.tab[data-tab="${qi}"]`);
+      if (!tab) return;
+      tab.querySelector(".qbadge")?.remove();
+      if (n > 0) tab.insertAdjacentHTML("beforeend", `<span class="qbadge" title="${n} ${esc(this._t("queue_upcoming"))}">${n > 99 ? "99+" : n}</span>`);
+    }, 400);
   }
 
   _updateProgress() {
@@ -1081,18 +1345,34 @@ class MusicAssistantFilterCard extends HTMLElement {
         <span class="chip-ic">${joined ? icon("mdi:link-variant") : playing ? `<span class="eq"><i></i><i></i><i></i></span>` : icon(p.icon || (leaderElsewhere ? "mdi:speaker-multiple" : "mdi:speaker"))}</span>
         <span class="chip-txt"><span class="chip-name">${esc(this._pname(p.entity))}</span>${sub ? `<span class="chip-sub">${esc(sub)}</span>` : ""}</span>
       </button>`;
-    }).join("") + (members.length ? `<button class="chip ghost" data-ungroup="1">${icon("mdi:link-variant-off")}<span class="chip-name">${esc(this._t("ungroup_all"))}</span></button>` : "");
+    }).join("")
+      + (others.some((p) => !members.includes(p.entity)) && others.length > 1 ? `<button class="chip ghost" data-groupall="1">${icon("mdi:link-variant-plus")}<span class="chip-name">${esc(this._t("group_all"))}</span></button>` : "")
+      + (members.length ? `<button class="chip ghost" data-ungroup="1">${icon("mdi:link-variant-off")}<span class="chip-name">${esc(this._t("ungroup_all"))}</span></button>` : "");
     if (bar._html === html) return;
     bar._html = html;
     bar.innerHTML = html;
     if (!bar._bound) {
       bar._bound = true;
-      this._bindPress(bar, "[data-player],[data-ungroup]", (el) => {
-        if (el.dataset.ungroup) {
+      this._bindPress(bar, "[data-player],[data-ungroup],[data-groupall]", (el) => {
+        if (el.dataset.groupall) this._groupAll();
+        else if (el.dataset.ungroup) {
           this._members(this._main()).forEach((m) => this._svc("media_player", "unjoin", {}, { entity_id: m }));
         } else this._toggleGroup(el.dataset.player);
       }, (el) => { if (el.dataset.player) this._playerMenu(el.dataset.player); });
     }
+  }
+
+  _groupAll() {
+    const main = this._main();
+    const members = this._members(main);
+    const todo = this._players().map((p) => p.entity).filter((e) => e !== main && !members.includes(e));
+    if (!todo.length) return;
+    const go = () => this._svc("media_player", "join", { group_members: todo }, { entity_id: main })
+      .catch((e) => this._toast(`${this._t("error")}: ${e.message || e}`, true));
+    if (todo.some((e) => this._busy(e))) {
+      this._dialog({ title: this._t("group_all"), text: this._t("group_all_q"),
+        actions: [{ label: this._t("group_all"), icon: "mdi:link-variant-plus", primary: true, run: go }] });
+    } else go();
   }
 
   /* ---------------- press handling (tap / long press / right click) ---------------- */
@@ -1138,6 +1418,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   _tabName(tab) { return tab.name || this._t(tab.type); }
 
   _renderTabs() {
+    setTimeout(() => this._updateQueueBadge(), 0);
     const nav = this.$("tabs");
     nav.innerHTML = this._config.tabs.map((t, i) =>
       `<button class="tab${i === this._activeTab ? " active" : ""}" data-tab="${i}">${icon(t.icon || TAB_TYPES[t.type].icon)}<span>${esc(this._tabName(t))}</span></button>`).join("");
@@ -1190,7 +1471,7 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   _resetTab(i) {
     const st = this._state(i);
-    st.items = []; st.rawOffset = 0; st.scanned = 0; st.done = false; st.error = null; st.loading = false; st.gen++;
+    st.items = []; st.seen = new Set(); st.rawOffset = 0; st.scanned = 0; st.done = false; st.error = null; st.loading = false; st.gen++;
     st.children = null;
     if (i === this._activeTab) {
       const g = this.$("grid");
@@ -1269,10 +1550,20 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._updateStatus();
     try {
       const drill = st.stack.length ? st.stack[st.stack.length - 1] : null;
-      if (drill || tab.type === "playlist") {
+      if (drill || tab.type === "playlist" || tab.type === "played") {
         if (!st.children) {
-          st.children = drill ? await this._fetchChildren(drill.kind, drill.uri)
-            : await this._fetchChildren("playlist", await this._resolvePlaylistUri(tab));
+          let list;
+          if (tab.type === "played" && !drill) {
+            const mt = tab.media_type || "track";
+            const r = await this._mqCmd("music/recently_played_items", { limit: tab.limit || 100, media_types: [mt], fully_played_only: false });
+            list = (r || []).map((x) => this._normalize(x));
+          } else {
+            list = drill ? await this._fetchChildren(drill.kind, drill.uri)
+              : await this._fetchChildren("playlist", await this._resolvePlaylistUri(tab));
+          }
+          await this._markFavorites(list);
+          if (!drill) this._applyGenres(list, await this._genreMap(tab, "track").catch(() => null));
+          st.children = list;
         }
         if (gen !== st.gen) return;
         const ast = drill ? null : tab._ast;
@@ -1291,6 +1582,8 @@ class MusicAssistantFilterCard extends HTMLElement {
       const want = pageSize;
       let added = [];
       const limitTotal = tab.limit || Infinity;
+      const gmap = await this._genreMap(tab, media_type).catch(() => null);
+      if (gen !== st.gen) return;
       while (added.length < want && !st.done) {
         const raw = await this._fetchLibrary(media_type, {
           offset: st.rawOffset, limit: pageSize, favorite: st.favOnly, search: st.search || undefined,
@@ -1300,7 +1593,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         st.rawOffset += raw.length;
         st.scanned += raw.length;
         if (raw.length < pageSize) st.done = true;
-        added = added.concat(raw.filter((x) => evalFilter(tab._ast, x)));
+        added = added.concat(this._applyGenres(raw, gmap).filter((x) => evalFilter(tab._ast, x)));
         if (!tab._ast) break;
         if (st.scanned >= (tab.max_scan || this._config.max_scan)) { st.done = true; break; }
         this._updateStatus(st.items.length + added.length);
@@ -1330,6 +1623,14 @@ class MusicAssistantFilterCard extends HTMLElement {
   _pushItems(i, items) {
     const st = this._state(i);
     const start = st.items.length;
+    // Doppelte Einträge (gleiche URI, oder gleicher Name/Interpret/Album/Version) nur einmal zeigen
+    st.seen = st.seen || new Set();
+    items = items.filter((x) => {
+      const k1 = x.uri, k2 = fold([x.media_type, x.name, x.version, (x.artists || []).join(","), x.album].join("|"));
+      if (st.seen.has(k1) || st.seen.has(k2)) return false;
+      st.seen.add(k1); st.seen.add(k2);
+      return true;
+    });
     st.items.push(...items);
     if (i === this._activeTab) this._appendTiles(st.items.slice(start), start);
   }
@@ -1463,6 +1764,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   }
 
   async _queueAction(act, k) {
+    setTimeout(() => this._updateQueueBadge(), 900);
     const it = this._queue?.items[+k];
     if (!it?.queue_item_id) return;
     const svc = { up: "move_queue_item_up", down: "move_queue_item_down", next: "move_queue_item_next", remove: "remove_queue_item", play: "play_queue_item" }[act];
@@ -1497,16 +1799,18 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   /* ---------------- dialog / toast ---------------- */
 
-  _dialog({ title, text, item, image, actions }) {
+  _dialog({ title, text, item, image, actions, html, like, big }) {
     const ov = this.$("overlay");
     const img = image || (item && this._image(item));
-    ov.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">
+    ov.innerHTML = `<div class="sheet${big ? " big" : ""}" role="dialog" aria-modal="true">
       <div class="sheet-head">
         ${img ? `<img src="${esc(img)}" alt="" draggable="false">` : item ? `<div class="sheet-ph">${icon(TYPE_ICON[item.media_type] || "mdi:music")}</div>` : ""}
-        <div><div class="sheet-title">${esc(title)}</div>${text ? `<div class="sheet-text">${esc(text)}</div>` : ""}</div>
+        <div class="sheet-ht"><div class="sheet-title">${esc(title)}</div>${text ? `<div class="sheet-text">${esc(text)}</div>` : ""}</div>
+        ${like ? `<button class="ib like-sheet${like.on ? " on" : ""}" data-like="1" title="${esc(this._t(like.on ? "unlike" : "like"))}">${icon(like.on ? "mdi:heart" : "mdi:heart-outline")}</button>` : ""}
       </div>
+      ${html || ""}
       <div class="sheet-actions">
-        ${actions.map((a, k) => `<button class="act${a.primary ? " primary" : ""}" data-k="${k}">${icon(a.icon)}<span>${esc(a.label)}</span></button>`).join("")}
+        ${actions.map((a, k) => `<button class="act${a.primary ? " primary" : ""}${a.active ? " active" : ""}" data-k="${k}">${icon(a.icon)}<span class="act-l"><span>${esc(a.label)}</span>${a.sub ? `<small>${esc(a.sub)}</small>` : ""}</span>${a.active ? icon("mdi:check", "act-chk") : ""}</button>`).join("")}
         <button class="act cancel" data-k="-1"><span>${esc(this._t("cancel"))}</span></button>
       </div>
     </div>`;
@@ -1518,6 +1822,14 @@ class MusicAssistantFilterCard extends HTMLElement {
     ov.onclick = (e) => {
       if (Date.now() - opened < 450) return; // Ghost-Klick des öffnenden Tipps (iOS) ignorieren
       if (e.target === ov) return close();
+      const lb = e.target.closest("[data-like]");
+      if (lb && like) {
+        like.on = !like.on;
+        lb.classList.toggle("on", like.on);
+        lb.innerHTML = icon(like.on ? "mdi:heart" : "mdi:heart-outline");
+        like.run();
+        return;
+      }
       const b = e.target.closest("[data-k]");
       if (!b) return;
       const k = +b.dataset.k;
@@ -1542,7 +1854,8 @@ class MusicAssistantFilterCard extends HTMLElement {
 
 const CSS = `
 :host { display:block; height:100%; --mafc-accent: var(--primary-color, #03a9f4); }
-ha-card { height:100%; overflow:hidden; position:relative; background: var(--ha-card-background, var(--card-background-color, #fff)); }
+ha-card { height:100%; overflow:hidden; position:relative; background: transparent; box-shadow:none; border:none; }
+:host([card-bg]) ha-card { background: var(--ha-card-background, var(--card-background-color, #fff)); box-shadow: var(--ha-card-box-shadow, none); border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0)); }
 * { box-sizing:border-box; }
 button { font:inherit; color:inherit; }
 ha-icon { --mdc-icon-size: 22px; display:inline-flex; }
@@ -1550,7 +1863,7 @@ ha-icon { --mdc-icon-size: 22px; display:inline-flex; }
 
 /* ---------- Sidebar ---------- */
 .sidebar { position:absolute; z-index:4; overflow:hidden; display:flex; flex-direction:column;
-  background: var(--mafc-sidebar-background, var(--secondary-background-color, rgba(127,127,127,.08)));
+  background: var(--mafc-sidebar-background, transparent);
   transition: width .25s ease, height .25s ease, box-shadow .25s; }
 .sb-bg { position:absolute; inset:-40px; background-size:cover; background-position:center; filter: blur(40px) saturate(1.4); opacity:.28; pointer-events:none; }
 .sb-full, .sb-mini { position:relative; }
@@ -1575,14 +1888,28 @@ ha-icon { --mdc-icon-size: 22px; display:inline-flex; }
 .stack .progress { grid-area: progress; } .stack .controls { grid-area: controls; } .stack .volume { grid-area: volume; min-width:200px; }
 
 .sb-head { display:flex; align-items:center; gap:4px; }
-.select-wrap { flex:1; min-width:0; position:relative; display:flex; align-items:center; gap:6px; padding:0 10px; height: var(--tap);
-  border-radius: 999px; background: rgba(127,127,127,.14); }
-.select-wrap .sel-ic { --mdc-icon-size:18px; color: var(--mafc-accent); }
+.select-wrap { flex:1; min-width:0; position:relative; display:flex; align-items:center; gap:8px; padding:0 10px 0 12px; height: var(--tap);
+  border:0; border-radius: 999px; background: rgba(127,127,127,.14); cursor:pointer; font-weight:600; font-size:15px; text-align:left; }
+.select-wrap:hover { background: rgba(127,127,127,.22); }
+.select-wrap .sel-ic { --mdc-icon-size:18px; color: var(--sidebar-selected-icon-color, var(--mafc-accent)); }
+.sel-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sel-chev { --mdc-icon-size:20px; color: var(--secondary-text-color); }
+#pinBtn.on { color: var(--sidebar-selected-icon-color, var(--primary-color)); position:relative; }
+#pinBtn.on::before { content:""; position:absolute; inset:0; border-radius:50%; background: var(--sidebar-selected-icon-color, var(--primary-color)); opacity:.12; }
+.cover-wrap { position:relative; }
+.cover { cursor:pointer; }
+.like-btn { position:absolute; right:6px; bottom:6px; background: rgba(0,0,0,.45); color:#fff; width:40px; height:40px; min-width:40px; }
+.stack .like-btn { right:-6px; bottom:-6px; width:32px; height:32px; min-width:32px; }
+.stack .like-btn ha-icon { --mdc-icon-size:18px; }
+.ib.like-btn.on, .ib.like-sheet.on { color:#ff4f7b; }
+.like-btn[hidden] { display:none; }
+.qbadge { position:relative; min-width:18px; height:18px; padding:0 5px; border-radius:9px; font-size:11px; font-weight:600; line-height:18px; text-align:center;
+  background: rgba(127,127,127,.25); color: var(--primary-text-color); }
 select { appearance:none; -webkit-appearance:none; flex:1; min-width:0; border:0; background:transparent; color:inherit; font:inherit; font-weight:600;
   font-size:15px; height:100%; outline:none; cursor:pointer; text-overflow:ellipsis; }
 select option { color: var(--primary-text-color); background: var(--card-background-color, #fff); }
 
-.cover-wrap { display:flex; justify-content:center; flex: 0 1 auto; min-height:0; }
+.cover-wrap { display:flex; justify-content:center; flex: 0 1 auto; min-height:0; align-self:center; }
 .cover { width:100%; max-width:320px; aspect-ratio:1; border-radius: calc(var(--ha-card-border-radius, 12px) * .8); overflow:hidden;
   background: rgba(127,127,127,.15); box-shadow: 0 6px 24px rgba(0,0,0,.25); }
 .side .cover { max-height: 42vh; max-width: min(320px, 42vh); }
@@ -1606,8 +1933,13 @@ select option { color: var(--primary-text-color); background: var(--card-backgro
 .times { display:flex; justify-content:space-between; font-size:12px; color: var(--secondary-text-color); margin-top:4px; font-variant-numeric: tabular-nums; }
 .controls { display:flex; align-items:center; justify-content:center; gap:6px; }
 .volume { display:flex; align-items:center; gap:2px; }
-.volume .ib.sm { width: calc(var(--tap) - 6px); min-width: calc(var(--tap) - 6px); }
-.volume input[type=range] { margin: 0 4px; }
+.volume input[type=range] { margin:0 6px; -webkit-appearance:none; appearance:none; background:transparent; height: var(--tap); cursor:pointer; touch-action: pan-y; }
+.volume input[type=range]::-webkit-slider-runnable-track { height:6px; border-radius:3px; background: linear-gradient(to right, var(--mafc-accent) var(--v, 0%), rgba(127,127,127,.3) var(--v, 0%)); }
+.volume input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width: calc(var(--tap) / 2); height: calc(var(--tap) / 2); margin-top: calc(3px - var(--tap) / 4);
+  border-radius:50%; background: var(--mafc-accent); border:0; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.volume input[type=range]::-moz-range-track { height:6px; border-radius:3px; background: rgba(127,127,127,.3); }
+.volume input[type=range]::-moz-range-progress { height:6px; border-radius:3px; background: var(--mafc-accent); }
+.volume input[type=range]::-moz-range-thumb { width: calc(var(--tap) / 2); height: calc(var(--tap) / 2); border-radius:50%; background: var(--mafc-accent); border:0; }
 .volv { font-size:12px; width:26px; text-align:right; color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
 input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); height: 28px; }
 
@@ -1665,7 +1997,7 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 
 .tb-play { display:flex; align-items:center; gap:2px; flex:none; }
 .tb-play .play-all { background: var(--mafc-accent); color: var(--text-primary-color, #fff); }
-.tabs { display:flex; gap:4px; padding:6px 8px; overflow-x:auto; scrollbar-width:none; flex:none; background: var(--sidebar-background-color, transparent); border-bottom:1px solid var(--divider-color, rgba(127,127,127,.2)); }
+.tabs { display:flex; gap:4px; padding:6px 8px; overflow-x:auto; scrollbar-width:none; flex:none; border-bottom:1px solid var(--divider-color, rgba(127,127,127,.2)); }
 .tab { flex:none; position:relative; display:flex; align-items:center; gap:12px; border:0; background:none; cursor:pointer; padding:0 12px; height: var(--tap); border-radius:4px;
   font-size:14px; font-weight:500; color: var(--sidebar-text-color, var(--primary-text-color)); -webkit-tap-highlight-color: transparent; }
 .tab::before { content:""; position:absolute; inset:0; border-radius:inherit; background: var(--sidebar-selected-icon-color, var(--primary-color)); opacity:0; }
@@ -1742,6 +2074,15 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .sheet-head { display:flex; gap:14px; align-items:center; margin-bottom:14px; }
 .sheet-head img, .sheet-ph { width:64px; height:64px; border-radius:10px; object-fit:cover; flex:none; background: rgba(127,127,127,.15); display:flex; align-items:center; justify-content:center; }
 .sheet-title { font-size:17px; font-weight:600; line-height:1.3; }
+.sheet-ht { flex:1; min-width:0; }
+.like-sheet { flex:none; }
+.sheet.big .sheet-head img, .sheet.big .sheet-ph { width:96px; height:96px; }
+.info-rows { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0 0 14px; font-size:14px; }
+.info-rows dt { color: var(--secondary-text-color); } .info-rows dd { margin:0; overflow-wrap:anywhere; }
+.act-l { display:flex; flex-direction:column; min-width:0; flex:1; text-align:left; }
+.act-l small { font-size:12px; opacity:.75; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.act.active { outline: 2px solid var(--sidebar-selected-icon-color, var(--mafc-accent)); outline-offset:-2px; }
+.act-chk { margin-left:auto; color: var(--sidebar-selected-icon-color, var(--mafc-accent)); }
 .sheet-text { font-size:14px; color: var(--secondary-text-color); margin-top:3px; }
 .sheet-actions { display:flex; flex-direction:column; gap:6px; }
 .act { display:flex; align-items:center; gap:12px; border:0; background: rgba(127,127,127,.1); border-radius:12px; padding: 0 16px; min-height: 50px;
@@ -1771,7 +2112,7 @@ const ED_OPS = {
   bool: [[":", "ist"]],
 };
 const ED_TYPES = [["playlists", "Playlisten"], ["albums", "Alben"], ["tracks", "Titel"], ["artists", "Interpreten"],
-  ["playlist", "Titel einer Playlist"], ["recent", "Neu hinzugefügt"], ["radio", "Radiosender"], ["queue", "Warteschlange"]];
+  ["playlist", "Titel einer Playlist"], ["recent", "Neu hinzugefügt"], ["played", "Zuletzt gespielt"], ["radio", "Radiosender"], ["queue", "Warteschlange"]];
 const ED_ORDER = [["", "Standard"], ["name", "Name A–Z"], ["name_desc", "Name Z–A"], ["timestamp_added_desc", "Zuletzt hinzugefügt"],
   ["timestamp_added", "Zuerst hinzugefügt"], ["last_played_desc", "Zuletzt gespielt"], ["play_count_desc", "Meistgespielt"],
   ["year_desc", "Jahr absteigend"], ["year", "Jahr aufsteigend"], ["artist_name", "Interpret"], ["random", "Zufällig"]];
@@ -1912,13 +2253,15 @@ class MaFilterCardEditor extends HTMLElement {
       <div class="ed">
         <details open><summary>${icon("mdi:cog")} Allgemein</summary><div class="body grid2">
           <label>Hauptplayer beim Start${this._sel('data-k="entity"', mainOpts, c.entity)}</label>
-          <label>Alben/Playlisten antippen${this._sel('data-k="collection_tap"', [["", "Nachfragen"], ["open", "Öffnen"], ["play", "Abspielen"]], c.collection_tap)}</label>
+          <label>Titel/Radio antippen${this._sel('data-k="track_tap"', [["", "Menü öffnen"], ["play", "Direkt abspielen"]], c.track_tap)}</label>
+          <label>Alben/Playlisten antippen${this._sel('data-k="collection_tap"', [["", "Menü öffnen"], ["open", "Öffnen"], ["play", "Abspielen"]], c.collection_tap)}</label>
           <label>Wenn schon etwas läuft${this._sel('data-k="when_playing"', [["", "Nachfragen"], ["replace", "Ersetzen"], ["next", "Als nächstes"], ["add", "Anhängen"], ["play", "Sofort spielen"]], c.when_playing)}</label>
           <label>Sidebar-Position${this._sel('data-sb="position"', [["", "Automatisch"], ["left", "Links"], ["right", "Rechts"], ["top", "Oben"], ["bottom", "Unten"]], sb.position)}</label>
           <label>Kachelgröße${this._sel('data-k="tile_size"', [["", "Automatisch"], ["small", "Klein"], ["medium", "Mittel"], ["large", "Groß"]], c.tile_size)}</label>
           ${!sb.position || sb.position === "auto" ? `
           <label>Querformat${this._sel('data-sb="position_landscape"', [["", "Links"], ["right", "Rechts"]], sb.position_landscape)}</label>
           <label>Hochformat${this._sel('data-sb="position_portrait"', [["", "Oben"], ["bottom", "Unten"]], sb.position_portrait)}</label>` : ""}
+          <label class="chk"><input type="checkbox" data-b="card_background"${c.card_background ? " checked" : ""}><span>Kartenhintergrund (sonst transparent)</span></label>
           <label class="chk"><input type="checkbox" data-sbb="pinned"${sb.pinned === false ? "" : " checked"}><span>Sidebar fixiert</span></label>
           <label class="chk"><input type="checkbox" data-sbb="collapsed"${sb.collapsed ? " checked" : ""}><span>Sidebar eingeklappt starten</span></label>
           <label class="chk"><input type="checkbox" data-b="show_group_bar"${c.show_group_bar === false ? "" : " checked"}><span>Gruppier-Leiste anzeigen</span></label>

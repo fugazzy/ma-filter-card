@@ -48,7 +48,7 @@
     return {
       item_id: String(i), provider: "library", name, version: "", uri: `library://${type}/${i}`, media_type: type,
       favorite: i % 4 === 0, year: 1970 + (i % 50), album_type: type === "album" ? (i % 5 ? "album" : "single") : undefined,
-      metadata: { genres: GENRES[a], popularity: (i * 37) % 101, images: i % 9 === 8 ? [] : [{ type: "thumb", path: art(i, type[0].toUpperCase() + (i + 1)), remotely_accessible: true }] },
+      metadata: { popularity: (i * 37) % 101, images: i % 9 === 8 ? [] : [{ type: "thumb", path: art(i, type[0].toUpperCase() + (i + 1)), remotely_accessible: true }] },
       artists: type === "album" || type === "track" ? [{ name: ARTISTS[a] }] : undefined,
       album: type === "track" ? { name: `Album ${(i % 40) + 1}` } : undefined,
       owner: type === "playlist" ? "me" : undefined, duration: 180 + (i % 120),
@@ -70,7 +70,7 @@
   const states = {
     "media_player.esszimmer": player("media_player.esszimmer", "Esszimmer", "playing", {
       media_title: "Titel 6", media_artist: "Queen", media_album_name: "A Night at the Opera", entity_picture: art(5, "♪"),
-      media_duration: 354, media_position: 40, media_position_updated_at: now() }),
+      media_duration: 354, media_position: 40, media_position_updated_at: now(), media_content_id: "library://track/5" }),
     "media_player.bad": player("media_player.bad", "Badezimmer", "idle"),
     "media_player.schlafzimmer": player("media_player.schlafzimmer", "Schlafzimmer", "playing", {
       media_title: "Wish You Were Here", media_artist: "Pink Floyd", entity_picture: art(3, "♫") }),
@@ -89,9 +89,25 @@
       if (msg.type !== "call_service") throw new Error("unsupported " + msg.type);
       const { domain, service, service_data: d, target } = msg;
       const key = domain + "." + service;
+      if (key === "music_assistant.get_queue") return { response: { [target.entity_id]: { items: queue.length, current_index: 2 } } };
+      if (key === "mass_queue.send_command" && !d.command.endsWith("/library_items") || d?.command === "music/genres/library_items") {
+        const c = d.command, dd = d.data || {};
+        const R = (x) => ({ response: { response: x } });
+        window.favs = window.favs || new Set(["library://track/0", "library://track/4"]);
+        if (c === "music/favorites/add_item") { favs.add(dd.item); return {}; }
+        if (c === "music/favorites/remove_item") { favs.delete(`library://${dd.media_type}/${dd.library_item_id}`); return {}; }
+        if (c === "music/tracks/get") return R({ ...mk("track", +dd.item_id), favorite: favs.has("library://track/" + dd.item_id) });
+        if (c === "music/recently_played_items") return R(Array.from({ length: 12 }, (_, i) => ({ item_id: String(i * 3), uri: `library://track/${i * 3}`, media_type: "track", name: `Titel ${i * 3 + 1}`, provider: "library" })));
+        if (c === "music/genres/library_items") return R(["Rock", "Hard Rock", "Metal", "Jazz", "Pop"].map((n, i) => ({ item_id: String(i + 1), name: n, uri: "library://genre/" + (i + 1) })).filter((g) => !dd.search || g.name.toLowerCase().includes(dd.search.toLowerCase())).slice(dd.offset || 0));
+        if (c === "music/genres/genres_for_media_item") return R([{ name: "Rock" }]);
+        if (c.startsWith("music/genres/")) { const t = c.endsWith("albums") ? "album" : "track"; const gi = +dd.item_id; return R(Array.from({ length: LIB[t] }, (_, i) => mk(t, i)).filter((x, i) => i % 5 === gi - 1).slice(dd.offset, dd.offset + dd.limit)); }
+        return { response: null };
+      }
       if (key === "mass_queue.send_command") {
         const type = PL_OF[d.command.split("/")[1]];
         let all = Array.from({ length: LIB[type] }, (_, i) => mk(type, i));
+        window.favs = window.favs || new Set(["library://track/0", "library://track/4"]);
+        if (type === "track") all.forEach((x) => { x.favorite = favs.has(x.uri); });
         if (d.data.favorite) all = all.filter((x) => x.favorite);
         if (d.data.search) all = all.filter((x) => x.name.toLowerCase().includes(d.data.search.toLowerCase()));
         if ((d.data.order_by || "").startsWith("timestamp_added_desc")) all.reverse();
@@ -138,6 +154,7 @@
       { type: "tracks" },
       { type: "playlist", name: "70er", uri: "library://playlist/1" },
       { type: "recent" },
+      { type: "played" },
       { type: "radio" },
       { type: "queue" },
     ],

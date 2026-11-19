@@ -18,6 +18,16 @@ Lovelace-Karte für Home Assistant, die Music Assistant steuert. Sie funktionier
 - Im **Warteschlangen-Tab** kannst du Titel abspielen, nach oben oder unten schieben, als nächstes einreihen und entfernen. Außerdem lässt sich die ganze Warteschlange leeren.
 - Die Karte übernimmt das **HA-Theme** (`--primary-color`, `--card-background-color`, `--primary-text-color` …). Die Tabs sind gestaltet wie die Einträge der HA-Seitenleiste (`--sidebar-text-color`, `--sidebar-selected-icon-color` …).
 
+### Neu in 0.6
+
+- **Ein Menü für alles:** Antippen öffnet bei Titeln, Alben, Playlisten und Radiosendern dasselbe Menü. Langes Drücken und Rechtsklick öffnen es ebenfalls.
+- **Gefällt mir:** Herz auf dem Cover des laufenden Titels und oben rechts in jedem Menü.
+- **Songinfo:** Antippen des Covers zeigt Titel, Interpret, Album, Jahr, Dauer, Genre und Quelle.
+- **Hauptplayer-Auswahl** als Liste mit dem, was gerade läuft.
+- **Alle gruppieren** und **Alle lösen** in der Gruppierleiste.
+- Am Warteschlangen-Tab zeigt eine kleine Zahl, wie viele Titel noch folgen.
+- Standardmäßig transparenter Hintergrund, Tab-Stil und Pin-Farbe wie in der HA-Seitenleiste.
+
 ## Voraussetzungen
 
 | Komponente | Wofür |
@@ -116,6 +126,8 @@ Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:
 | `sidebar.width` | `auto` | Breite in px bei seitlicher Sidebar |
 | `sidebar.pinned` / `collapsed` | `true` / `false` | Startzustand. Danach wird der Zustand pro Gerät gespeichert. Die aufgeklappte Sidebar verdeckt nie den Hauptbereich. Ist sie nicht fixiert, klappt sie bei einem Tipp in den Hauptbereich wieder ein. |
 | `sidebar.collapsible` | `true` | `false` blendet die Pin- und Einklapp-Knöpfe aus |
+| `track_tap` | `menu` | Antippen von Titel oder Radiosender: `menu` (Menü mit allen Aktionen) oder `play` (direkt, dann gilt `when_playing`) |
+| `card_background` | `false` | `true` zeigt den Kartenhintergrund. Standard ist transparent |
 | `collection_tap` | `ask` | Antippen von Album, Playlist oder Interpret: `ask` (Menü mit Öffnen, Abspielen mit Ersetzen der Warteschlange, Als nächstes, Anhängen), `open` oder `play` |
 | `when_playing` | `ask` | Verhalten beim Antippen, wenn schon etwas läuft: `ask`, `replace`, `next`, `add`, `play` |
 | `tile_size` | `auto` | `auto` (wächst mit dem Platz bis 260 px), `small`, `medium`, `large`, `xlarge` oder eine Zahl in px |
@@ -142,6 +154,7 @@ Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:
 | `artists` | Interpreten | |
 | `playlist` | Titel **genau einer** Playlist | `uri: library://playlist/…` oder `playlist: <Name>` |
 | `recent` | Neu hinzugefügt | `media_type: album \| track \| playlist \| artist \| radio` |
+| `played` | Zuletzt gespielt | `media_type` (Standard `track`), `limit` (Standard 100). Braucht mass_queue |
 | `radio` | Radiosender | |
 | `queue` | Warteschlange bearbeiten | |
 
@@ -186,7 +199,7 @@ filter:
 
 ### Hinweise zu den Daten
 
-- **Genre** kommt aus den Music-Assistant-Metadaten. Das Feld ist nur gefüllt, wenn der Anbieter oder der Metadaten-Scan Genres liefert. Bei Titeln wird auch das Genre des Albums berücksichtigt.
+- **Genre** nutzt die Genre-Zuordnung von Music Assistant (ab MA 2.7, mit mass_queue). Die Karte sucht die Genres, deren Name zum Muster passt, und lädt dazu die Alben bzw. Titel. Passt kein Genre-Name, sucht sie über die Genre-Aliase von MA, sodass `genre:gothic` auch „Gothic Metal“-Zuordnungen findet. Das funktioniert in Tabs mit Alben und Titeln, nicht bei Playlisten, Interpreten und Radiosendern. Beim ersten Laden eines Genre-Tabs dauert es einen Moment.
 - **Bewertung**: Die Karte nutzt nur die Likes (Favoriten) aus Music Assistant. Eine Sternebewertung liefert MA nicht, deshalb gibt es kein Sterne-Feld.
 - Die Karte filtert **Favoriten** und die Suche direkt auf dem Server. Alle anderen Felder filtert sie im Browser: Sie lädt die Bibliothek seitenweise, bis genug Treffer da sind (höchstens `max_scan` Einträge).
 
