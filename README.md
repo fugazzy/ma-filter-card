@@ -210,3 +210,13 @@ filter:
 - **Nicht-Admin-Benutzer** (z. B. Wandtablets) dürfen die Integrationsliste nicht lesen. Trage für sie `config_entry_id` und `mass_queue_entry_id` direkt ein (*Einstellungen → Geräte & Dienste → Integration → ⋮ → Eintrags-ID kopieren*).
 - **Cover**: Einige Bilder (z. B. Playlist-Collagen, lokale Dateien) liefert Music Assistant nur über seinen eigenen `/imageproxy` aus. Läuft HA über **HTTPS** und MA über **HTTP**, blockiert der Browser diese Bilder (Mixed Content). Dann erscheint ein Platzhalter-Symbol, oder du setzt `ma_url` auf eine HTTPS-Adresse.
 - **Gruppieren** nutzt `media_player.join` und `media_player.unjoin`. Ob das klappt, hängt vom Player-Typ ab (AirPlay, Chromecast und Sendspin gruppieren in MA problemlos; ein MA-Gruppenplayer als Hauptplayer kann keine weiteren Mitglieder aufnehmen).
+
+## Credits und Dank
+
+- **[mass_queue](https://github.com/droans/mass_queue)** von [droans](https://github.com/droans): Die Integration liefert die vollständigen Bibliotheksdaten, die Titel von Playlisten und Alben, den Warteschlangen-Editor und den Zugriff auf die Music-Assistant-API (Favoriten, Genres, zuletzt gespielt). Ohne sie wäre ein Großteil dieser Karte nicht möglich. Vielen Dank!
+- **[touch-music-card](https://github.com/mnrgrrt/touch-music-card)** von [mnrgrrt](https://github.com/mnrgrrt): Danke für die Inspiration! Die Idee einer touchfreundlichen Musikkarte mit Sidebar und Coverkacheln stammt von dort.
+- **[Music Assistant](https://music-assistant.io)**: das Herzstück, das alle Quellen und Player zusammenbringt.
+
+## Lizenz
+
+[MIT](LICENSE)

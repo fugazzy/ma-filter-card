@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.5";
+const MAFC_VERSION = "0.7.6";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -18,6 +18,7 @@ const STRINGS = {
     group_join: "Gruppieren", group_leave: "Aus Gruppe lösen", make_main: "Als Hauptplayer verwenden",
     all_players: "Alle Player", set_main: "Als Hauptplayer", join: "Gruppieren", leave: "Lösen", close: "Schließen",
     ungroup_all: "Alle lösen", group_all: "Alle gruppieren", main_player: "Hauptplayer", back: "Zurück",
+    fav_add: "Zu Favoriten hinzufügen", fav_remove: "Aus Favoriten entfernen",
     players: "Alle Player", played: "Zuletzt gespielt", like: "Gefällt mir", unlike: "Gefällt mir entfernen", liked: "Gefällt mir", unliked: "Gefällt mir entfernt",
     song_info: "Songinfo", f_title: "Titel", f_artist: "Interpret", f_album: "Album", f_year: "Jahr", f_duration: "Dauer", f_genre: "Genre", f_source: "Quelle", f_player: "Player",
     queue_upcoming: "Titel in der Warteschlange", group_all_q: "Andere Player spielen gerade. Ihre Wiedergabe wird ersetzt.",
@@ -43,6 +44,7 @@ const STRINGS = {
     group_join: "Group", group_leave: "Remove from group", make_main: "Use as main player",
     all_players: "All players", set_main: "Make main player", join: "Group", leave: "Ungroup", close: "Close",
     ungroup_all: "Ungroup all", group_all: "Group all", main_player: "Main player", back: "Back",
+    fav_add: "Add to favorites", fav_remove: "Remove from favorites",
     players: "All players", played: "Recently played", like: "Like", unlike: "Remove like", liked: "Liked", unliked: "Like removed",
     song_info: "Song info", f_title: "Title", f_artist: "Artist", f_album: "Album", f_year: "Year", f_duration: "Duration", f_genre: "Genre", f_source: "Source", f_player: "Player",
     queue_upcoming: "tracks in queue", group_all_q: "Other players are playing. Their playback will be replaced.",
@@ -669,6 +671,11 @@ class MusicAssistantFilterCard extends HTMLElement {
         { label: t("add_queue"), icon: "mdi:playlist-plus", run: () => this._play(item, "add") },
         { label: t("start_radio"), icon: "mdi:radio-tower", run: () => this._play(item, "replace", true) },
       );
+    }
+    // Alben, Playlisten und Interpreten: Favorit auch als eigener Menüpunkt
+    if (coll && this._canLike(item)) {
+      actions.push({ label: t(item.favorite ? "fav_remove" : "fav_add"), icon: item.favorite ? "mdi:heart-off-outline" : "mdi:heart-plus-outline",
+        run: () => this._toggleFavorite(item) });
     }
     this._dialog({
       title: item.name, text: [(item.artists || []).join(", "), item.album, item.year].filter(Boolean).join(" · "), item, actions,
