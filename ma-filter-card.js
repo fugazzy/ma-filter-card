@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.3";
+const MAFC_VERSION = "0.7.4";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -853,7 +853,14 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   // „Alle Player“: als eigener Tab (type: players) oder – ohne solchen Tab – als vorübergehende Ansicht im Hauptbereich
   _openOverview() {
+    // Erneuter Tipp bei offener Ansicht: zurück zum vorherigen Tab
+    if (this._pv) { this._showTab(this._activeTab); return; }
     const ti = this._config.tabs.findIndex((t) => t.type === "players");
+    if (ti >= 0 && this._activeTab === ti) {
+      const back = this._prevTab != null && this._prevTab !== ti && this._config.tabs[this._prevTab] ? this._prevTab : ti === 0 ? 1 : 0;
+      if (this._config.tabs[back]) this._showTab(back);
+      return;
+    }
     if (ti >= 0) { this._showTab(ti); return; }
     if (this._tabState[this._activeTab] && !this._pv) this._tabState[this._activeTab].scroll = this.$("content").scrollTop;
     this._pv = true;
@@ -1640,6 +1647,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     const prev = this._activeTab;
     if (this._tabState[prev] && !this._pv) this._tabState[prev].scroll = this.$("content").scrollTop;
     this._pv = false;
+    if (prev !== i) this._prevTab = prev;
     this._activeTab = i;
     this._markOv();
     this._save();
