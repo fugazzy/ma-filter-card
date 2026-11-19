@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.0";
+const MAFC_VERSION = "0.7.1";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -18,7 +18,7 @@ const STRINGS = {
     group_join: "Gruppieren", group_leave: "Aus Gruppe lösen", make_main: "Als Hauptplayer verwenden",
     all_players: "Alle Player", set_main: "Als Hauptplayer", join: "Gruppieren", leave: "Lösen", close: "Schließen",
     ungroup_all: "Alle lösen", group_all: "Alle gruppieren", main_player: "Hauptplayer", back: "Zurück",
-    played: "Zuletzt gespielt", like: "Gefällt mir", unlike: "Gefällt mir entfernen", liked: "Gefällt mir", unliked: "Gefällt mir entfernt",
+    players: "Alle Player", played: "Zuletzt gespielt", like: "Gefällt mir", unlike: "Gefällt mir entfernen", liked: "Gefällt mir", unliked: "Gefällt mir entfernt",
     song_info: "Songinfo", f_title: "Titel", f_artist: "Interpret", f_album: "Album", f_year: "Jahr", f_duration: "Dauer", f_genre: "Genre", f_source: "Quelle", f_player: "Player",
     queue_upcoming: "Titel in der Warteschlange", group_all_q: "Andere Player spielen gerade. Ihre Wiedergabe wird ersetzt.",
     collapse: "Einklappen", expand: "Ausklappen", pin: "Fixieren", unpin: "Lösen (klappt automatisch ein)", mute: "Stumm", vol_down: "Leiser", vol_up: "Lauter",
@@ -43,7 +43,7 @@ const STRINGS = {
     group_join: "Group", group_leave: "Remove from group", make_main: "Use as main player",
     all_players: "All players", set_main: "Make main player", join: "Group", leave: "Ungroup", close: "Close",
     ungroup_all: "Ungroup all", group_all: "Group all", main_player: "Main player", back: "Back",
-    played: "Recently played", like: "Like", unlike: "Remove like", liked: "Liked", unliked: "Like removed",
+    players: "All players", played: "Recently played", like: "Like", unlike: "Remove like", liked: "Liked", unliked: "Like removed",
     song_info: "Song info", f_title: "Title", f_artist: "Artist", f_album: "Album", f_year: "Year", f_duration: "Duration", f_genre: "Genre", f_source: "Source", f_player: "Player",
     queue_upcoming: "tracks in queue", group_all_q: "Other players are playing. Their playback will be replaced.",
     collapse: "Collapse", expand: "Expand", pin: "Pin", unpin: "Unpin (auto-collapse)", mute: "Mute", vol_down: "Volume down", vol_up: "Volume up",
@@ -68,6 +68,7 @@ const TAB_TYPES = {
   radio: { media_type: "radio", icon: "mdi:radio", order_by: "name" },
   playlist: { media_type: "track", icon: "mdi:playlist-play" },
   played: { media_type: "track", icon: "mdi:history" },
+  players: { icon: "mdi:speaker-multiple" },
   queue: { icon: "mdi:playlist-edit" },
 };
 const PLURAL = { album: "albums", track: "tracks", playlist: "playlists", radio: "radios", artist: "artists" };
@@ -844,30 +845,34 @@ class MusicAssistantFilterCard extends HTMLElement {
     return list;
   }
 
+  // „Alle Player“: als eigener Tab (type: players) oder – ohne solchen Tab – als vorübergehende Ansicht im Hauptbereich
   _openOverview() {
-    const ov = this.$("overlay");
-    this._ovOpen = true;
-    ov.innerHTML = `<div class="sheet ovw" role="dialog" aria-modal="true">
-      <div class="ovw-head"><div class="sheet-title">${esc(this._t("all_players"))}</div><span class="spacer"></span>
-        <button class="ib" data-pc="close" title="${esc(this._t("close"))}">${icon("mdi:close")}</button></div>
-      <div class="ovw-grid" id="ovwGrid"></div></div>`;
-    ov.hidden = false;
+    const ti = this._config.tabs.findIndex((t) => t.type === "players");
+    if (ti >= 0) { this._showTab(ti); return; }
+    if (this._tabState[this._activeTab] && !this._pv) this._tabState[this._activeTab].scroll = this.$("content").scrollTop;
+    this._pv = true;
+    this.shadowRoot.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+    this._renderToolbar();
+    this._showPlayers();
+    if (!this._ui.pinned && !this._ui.collapsed) this._setCollapsed(true);
+  }
+
+  _showPlayers() {
+    const content = this.$("content");
+    content.innerHTML = `<div class="ovw-grid" id="ovwGrid"></div>`;
+    content.scrollTop = 0;
     this._ovSig = null;
     this._renderOverview();
-    const opened = Date.now();
-    const close = () => { this._ovOpen = false; ov.hidden = true; ov.innerHTML = ""; document.removeEventListener("keydown", onKey); };
-    const onKey = (e) => { if (e.key === "Escape") close(); };
-    document.addEventListener("keydown", onKey);
-    ov.oncontextmenu = (e) => e.preventDefault();
-    ov.onclick = (e) => {
-      if (Date.now() - opened < 450) return;
-      if (e.target === ov) return close();
+    if (content._pvBound) return;
+    content._pvBound = true;
+    content.addEventListener("click", (e) => {
       const b = e.target.closest("[data-pc]");
       if (!b) return;
-      if (b.dataset.pc === "close") return close();
+      e.stopPropagation();
       const ent = b.closest("[data-e]")?.dataset.e;
-      if (!ent) return;
-      const st = this._hass.states[ent], tg = { entity_id: ent };
+      const st = ent && this._hass.states[ent];
+      if (!st) return;
+      const tg = { entity_id: ent };
       const run = (d, sv, data = {}) => this._svc(d, sv, data, tg).catch((er) => this._toast(`${this._t("error")}: ${er.message || er}`, true));
       switch (b.dataset.pc) {
         case "pp": run("media_player", "media_play_pause"); break;
@@ -877,14 +882,14 @@ class MusicAssistantFilterCard extends HTMLElement {
         case "main": this._setMain(ent); this._ovSig = null; this._renderOverview(); break;
         case "group": this._toggleGroup(ent); break;
       }
-    };
-    ov.onchange = (e) => {
-      const r = e.target.closest("input[data-vol]");
+    });
+    content.addEventListener("input", (e) => { const r = e.target.closest?.("input[data-vol]"); if (r) { this._ovDrag = true; r.style.setProperty("--v", r.value + "%"); } });
+    content.addEventListener("change", (e) => {
+      const r = e.target.closest?.("input[data-vol]");
       if (!r) return;
       this._ovDrag = false;
       this._svc("media_player", "volume_set", { volume_level: +r.value / 100 }, { entity_id: r.dataset.vol }).catch(() => {});
-    };
-    ov.oninput = (e) => { const r = e.target.closest("input[data-vol]"); if (r) { this._ovDrag = true; r.style.setProperty("--v", r.value + "%"); } };
+    });
   }
 
   _renderOverview() {
@@ -1151,9 +1156,9 @@ class MusicAssistantFilterCard extends HTMLElement {
         <button class="ib play" data-cmd="playpause" id="ppBtn">${icon("mdi:play")}</button>
         <button class="ib" data-cmd="next">${icon("mdi:skip-next")}</button>
         <button class="ib sm" data-cmd="repeat" id="repBtn">${icon("mdi:repeat-off")}</button>
+        <button class="ib sm" data-cmd="mute" id="muteBtn" title="${t("mute")}">${icon("mdi:volume-high")}</button>
       </div>
       <div class="volume">
-        <button class="ib sm" data-cmd="mute" id="muteBtn" title="${t("mute")}">${icon("mdi:volume-high")}</button>
         <button class="ib sm" data-cmd="voldown" title="${t("vol_down")}">${icon("mdi:volume-minus")}</button>
         <input type="range" min="0" max="100" step="1" id="vol" aria-label="Volume">
         <button class="ib sm" data-cmd="volup" title="${t("vol_up")}">${icon("mdi:volume-plus")}</button>
@@ -1259,7 +1264,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._updateSidebar();
     this._renderGroupBar();
     if (prevTitle !== this._lastTitle) this._updateQueueBadge();
-    if (this._ovOpen) this._renderOverview();
+    if (this.$("ovwGrid")) this._renderOverview();
     if (prevTitle !== undefined && prevTitle !== this._lastTitle && this._config.tabs[this._activeTab]?.type === "queue") {
       clearTimeout(this._qT);
       this._qT = setTimeout(() => this._loadQueue(true), 600);
@@ -1323,6 +1328,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (!this._volDrag && this._volPending == null && a.volume_level != null) {
       const v = Math.round(a.volume_level * 100);
       this.$("vol").value = v;
+      this.$("vol").title = v + " %";
       this.$("vol").style.setProperty("--v", v + "%");
       this.$("volv").textContent = v;
     }
@@ -1368,7 +1374,8 @@ class MusicAssistantFilterCard extends HTMLElement {
     ["likeBtn", "miniLike"].forEach((id) => {
       const b = this.$(id);
       if (!b) return;
-      b.hidden = !this._now;
+      // in der Knopfreihe Platz behalten (Symmetrie), in der Mini-Leiste ganz ausblenden
+      if (id === "likeBtn") { b.hidden = false; b.style.visibility = this._now ? "" : "hidden"; } else b.hidden = !this._now;
       b.classList.toggle("on", on);
       b.innerHTML = icon(on ? "mdi:heart" : "mdi:heart-outline");
       b.title = this._t(on ? "unlike" : "like");
@@ -1591,6 +1598,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       const b = e.target.closest("[data-tab]");
       if (!b) return;
       const i = +b.dataset.tab;
+      if (this._pv) { this._showTab(i); return; }
       if (i === this._activeTab) {
         const st = this._tabState[i];
         if (st?.stack?.length) { st.stack = []; this._showTab(i, true); return; }
@@ -1614,7 +1622,8 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   _showTab(i, force = false) {
     const prev = this._activeTab;
-    if (this._tabState[prev]) this._tabState[prev].scroll = this.$("content").scrollTop;
+    if (this._tabState[prev] && !this._pv) this._tabState[prev].scroll = this.$("content").scrollTop;
+    this._pv = false;
     this._activeTab = i;
     this._save();
     this.shadowRoot.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", +b.dataset.tab === i));
@@ -1623,6 +1632,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     const st = this._state(i);
     this._renderToolbar();
     if (tab.type === "queue") { this._loadQueue(true); return; }
+    if (tab.type === "players") { this._showPlayers(); return; }
     const content = this.$("content");
     content.innerHTML = `<div class="grid" id="grid"></div><div class="sentinel" id="sentinel"></div><div class="status" id="status"></div>`;
     if (force || (!st.items.length && !st.done) || st.error) this._resetTab(i);
@@ -1650,6 +1660,11 @@ class MusicAssistantFilterCard extends HTMLElement {
     const tab = this._config.tabs[i];
     const st = this._state(i);
     const bar = this.$("toolbar");
+    if (this._pv || tab.type === "players") {
+      bar.innerHTML = `<div class="tb-title">${icon("mdi:speaker-multiple")}<span>${esc(this._t("all_players"))}</span></div>`;
+      bar.onclick = null;
+      return;
+    }
     if (tab.type === "queue") {
       bar.innerHTML = `<div class="tb-title">${icon("mdi:playlist-music")}<span>${esc(this._pname(this._main() || ""))}</span></div>
         <span class="spacer"></span>
@@ -1709,7 +1724,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   async _loadMore(i) {
     const tab = this._config.tabs[i];
     const st = this._state(i);
-    if (st.loading || st.done || tab.type === "queue") return;
+    if (st.loading || st.done || tab.type === "queue" || tab.type === "players") return;
     st.loading = true;
     const gen = st.gen;
     this._updateStatus();
@@ -1867,7 +1882,7 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   async _loadQueue(force) {
     const i = this._activeTab;
-    if (this._config.tabs[i]?.type !== "queue") return;
+    if (this._config.tabs[i]?.type !== "queue" || this._pv) return;
     const content = this.$("content");
     const e = await this._resolveEntries();
     if (!e.mq) {
@@ -1967,7 +1982,6 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   _dialog({ title, text, item, image, actions, html, like, big }) {
     const ov = this.$("overlay");
-    this._ovOpen = false; ov.onchange = ov.oninput = null;
     const img = image || (item && this._image(item));
     ov.innerHTML = `<div class="sheet${big ? " big" : ""}" role="dialog" aria-modal="true">
       <div class="sheet-head">
@@ -2119,6 +2133,7 @@ select option { color: var(--primary-text-color); background: var(--card-backgro
 .volume input[type=range]::-moz-range-track { height:6px; border-radius:3px; background: rgba(127,127,127,.3); }
 .volume input[type=range]::-moz-range-progress { height:6px; border-radius:3px; background: var(--mafc-accent); }
 .volume input[type=range]::-moz-range-thumb { width: calc(var(--tap) / 2); height: calc(var(--tap) / 2); border-radius:50%; background: var(--mafc-accent); border:0; }
+.sb-full .volv { display:none; }
 .volv { font-size:12px; width:26px; text-align:right; color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
 input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); height: 28px; }
 
@@ -2148,9 +2163,7 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .ov-btn:hover { background: rgba(127,127,127,.2); }
 .ov-btn > span { flex:1; text-align:left; } .ov-chev { --mdc-icon-size:18px; color: var(--secondary-text-color); }
 .stack .ov-btn { display:none; } .side .ov-head { display:none; }
-.sheet.ovw { width: min(980px, 100%); max-height:100%; padding:14px 16px 16px; }
-.ovw-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; } .ovw-head .spacer { flex:1; }
-.ovw-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap:12px; }
+.ovw-grid { padding-top:8px; display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap:12px; }
 .pcard { display:flex; gap:12px; padding:10px; border-radius:16px; background: rgba(127,127,127,.08); border:1.5px solid transparent; min-width:0; }
 .pcard.is-main { border-color: var(--sidebar-selected-icon-color, var(--mafc-accent)); }
 .pc-art { position:relative; width:96px; height:96px; flex:none; border-radius:12px; overflow:hidden; background: rgba(127,127,127,.15);
@@ -2170,8 +2183,6 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .pc-pp { background: var(--mafc-accent); color: var(--text-primary-color, #fff); }
 .pc-vol { margin-top:-4px; }
 @media (max-width: 520px) {
-  .overlay:has(.ovw) { padding:8px; }
-  .sheet.ovw { padding:12px 10px; }
   .pcard { gap:10px; padding:8px; }
   .pc-art { width:64px; height:64px; border-radius:10px; }
   .pc-ctl { flex-wrap:wrap; }
@@ -2327,7 +2338,7 @@ const ED_OPS = {
   bool: [[":", "ist"]],
 };
 const ED_TYPES = [["playlists", "Playlisten"], ["albums", "Alben"], ["tracks", "Titel"], ["artists", "Interpreten"],
-  ["playlist", "Titel einer Playlist"], ["recent", "Neu hinzugefügt"], ["played", "Zuletzt gespielt"], ["radio", "Radiosender"], ["queue", "Warteschlange"]];
+  ["playlist", "Titel einer Playlist"], ["recent", "Neu hinzugefügt"], ["played", "Zuletzt gespielt"], ["radio", "Radiosender"], ["queue", "Warteschlange"], ["players", "Alle Player"]];
 const ED_ORDER = [["", "Standard"], ["name", "Name A–Z"], ["name_desc", "Name Z–A"], ["timestamp_added_desc", "Zuletzt hinzugefügt"],
   ["timestamp_added", "Zuerst hinzugefügt"], ["last_played_desc", "Zuletzt gespielt"], ["play_count_desc", "Meistgespielt"],
   ["year_desc", "Jahr absteigend"], ["year", "Jahr aufsteigend"], ["artist_name", "Interpret"], ["random", "Zufällig"]];
@@ -2421,7 +2432,7 @@ class MaFilterCardEditor extends HTMLElement {
   _emit() {
     const c = this._config;
     c.tabs.forEach((t, i) => {
-      if (t.type === "queue") { delete t.filter; this._sers[i] = ""; return; }
+      if (t.type === "queue" || t.type === "players") { delete t.filter; this._sers[i] = ""; return; }
       if (this._errs[i]) return; // fehlerhaften Ausdruck nicht überschreiben
       const s = edSer(this._models[i]);
       if (s) t.filter = s; else delete t.filter;
@@ -2623,7 +2634,7 @@ class MaFilterCardEditor extends HTMLElement {
     if (t.type === "playlist") extra += `<label>Playlist (tippen zum Suchen)<input data-t="${i}" data-k="playlist" data-sug="playlist" autocomplete="off" value="${esc(t.playlist || "")}" placeholder="z. B. 70ties"></label>
       <label>oder URI<input data-t="${i}" data-k="uri" value="${esc(t.uri || "")}" placeholder="library://playlist/…"></label>`;
     if (t.type === "recent") extra += `<label>Medientyp${this._sel(`data-t="${i}" data-k="media_type"`, [["", "Alben"], ["track", "Titel"], ["playlist", "Playlisten"], ["artist", "Interpreten"], ["radio", "Radio"]], t.media_type)}</label>`;
-    if (!["queue", "playlist"].includes(t.type)) extra += `<label>Sortierung${this._sel(`data-t="${i}" data-k="order_by"`, ED_ORDER, t.order_by)}</label>
+    if (!["queue", "playlist", "players"].includes(t.type)) extra += `<label>Sortierung${this._sel(`data-t="${i}" data-k="order_by"`, ED_ORDER, t.order_by)}</label>
       <label>Max. Anzahl<input type="number" min="1" data-t="${i}" data-n="limit" value="${esc(t.limit ?? "")}" placeholder="unbegrenzt"></label>`;
     return `<div class="tabbox${open ? " open" : ""}">
       <div class="tabhead">
@@ -2644,7 +2655,7 @@ class MaFilterCardEditor extends HTMLElement {
           <label>Inhalt${this._sel(`data-t="${i}" data-k="type" data-rerender="1"`, ED_TYPES, t.type)}</label>
           ${extra}
         </div>
-        ${t.type === "queue" ? "" : `
+        ${t.type === "queue" || t.type === "players" ? "" : `
         <div class="row">
           <label class="chk"><input type="checkbox" data-t="${i}" data-b="favorites"${t.favorites ? " checked" : ""}><span>Favoriten-Schalter beim Öffnen an</span></label>
           <label class="chk"><input type="checkbox" data-t="${i}" data-b="show_favorites_toggle"${t.show_favorites_toggle === false ? "" : " checked"}><span>Favoriten-Schalter anzeigen</span></label>

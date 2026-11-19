@@ -25,7 +25,7 @@ Lovelace-Karte für Home Assistant, die Music Assistant steuert. Sie funktionier
 - **Songinfo:** Antippen des Covers zeigt Titel, Interpret, Album, Jahr, Dauer, Genre und Quelle.
 - **Hauptplayer-Auswahl** als Liste mit dem, was gerade läuft.
 - **Alle gruppieren** und **Alle lösen** in der Gruppierleiste.
-- **Alle Player** (Button unten in der Sidebar, eingeklappt als Symbol): Übersicht aller aktivierten Player mit Cover, Titel, Zurück/Play/Weiter, Lautstärke, Gruppieren und „Als Hauptplayer“.
+- **Alle Player** (Button unten in der Sidebar, eingeklappt als Symbol): Ansicht im Hauptbereich mit allen aktivierten Playern, jeweils mit Cover, Titel, Zurück/Play/Weiter, Lautstärke, Gruppieren und „Als Hauptplayer“. Ein Tipp auf einen Tab kehrt zurück. Als fester Tab: `type: players`.
 - Am Warteschlangen-Tab zeigt eine kleine Zahl, wie viele Titel noch folgen.
 - Standardmäßig transparenter Hintergrund, Tab-Stil und Pin-Farbe wie in der HA-Seitenleiste.
 
@@ -157,6 +157,7 @@ Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:
 | `recent` | Neu hinzugefügt | `media_type: album \| track \| playlist \| artist \| radio` |
 | `played` | Zuletzt gespielt | `media_type` (Standard `track`), `limit` (Standard 100). Braucht mass_queue |
 | `radio` | Radiosender | |
+| `players` | Alle Player | Übersicht aller Player mit Miniplayern |
 | `queue` | Warteschlange bearbeiten | |
 
 Gemeinsame Optionen: `name`, `icon`, `filter`, `favorites` (Startzustand des Favoriten-Schalters), `show_favorites_toggle` (Standard `true`), `order_by` (z. B. `name`, `name_desc`, `timestamp_added_desc`, `last_played_desc`, `play_count_desc`, `year_desc`, `random`), `limit`, `max_scan`.
