@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.4";
+const MAFC_VERSION = "0.7.5";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -854,7 +854,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   // „Alle Player“: als eigener Tab (type: players) oder – ohne solchen Tab – als vorübergehende Ansicht im Hauptbereich
   _openOverview() {
     // Erneuter Tipp bei offener Ansicht: zurück zum vorherigen Tab
-    if (this._pv) { this._showTab(this._activeTab); return; }
+    if (this._pv || (this.$("ovwGrid") && this._config.tabs[this._activeTab]?.type !== "players")) { this._showTab(this._activeTab); return; }
     const ti = this._config.tabs.findIndex((t) => t.type === "players");
     if (ti >= 0 && this._activeTab === ti) {
       const back = this._prevTab != null && this._prevTab !== ti && this._config.tabs[this._prevTab] ? this._prevTab : ti === 0 ? 1 : 0;
@@ -2544,6 +2544,7 @@ class MaFilterCardEditor extends HTMLElement {
           <label>Höhe (z. B. 700 oder 80vh)<input data-k="height" value="${esc(c.height ?? "")}" placeholder="automatisch"></label>
           <label>Max. durchsuchte Einträge<input type="number" data-n="max_scan" value="${esc(c.max_scan ?? "")}" placeholder="3000"></label>
         </div></details>
+        <div class="muted ver">Music Assistant Filtercard ${MAFC_VERSION}</div>
       </div>`;
     this._sugEl = null;
     this.shadowRoot.querySelectorAll("ha-icon-picker[data-iconpick]").forEach((pk) => {
@@ -2924,6 +2925,7 @@ class MaFilterCardEditor extends HTMLElement {
 const CSS_ESC = (s) => (window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/["\\]/g, "\\$&"));
 
 const ED_CSS = `
+.ver { text-align:right; font-size:11px; opacity:.6; margin-top:4px; }
 :host { display:block; position:relative; color: var(--primary-text-color); font-size:14px; }
 .sug { position:absolute; z-index:20; display:none; max-height:300px; overflow:auto; border-radius:10px; padding:4px;
   background: var(--card-background-color, #fff); border:1px solid var(--divider-color, rgba(127,127,127,.3)); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
