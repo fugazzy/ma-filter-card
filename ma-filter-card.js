@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.2";
+const MAFC_VERSION = "0.7.3";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -863,7 +863,14 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (!this._ui.pinned && !this._ui.collapsed) this._setCollapsed(true);
   }
 
+  // „Alle Player“-Buttons in der Auswahlfarbe der HA-Seitenleiste, solange die Ansicht aktiv ist
+  _markOv() {
+    const on = !!this._pv || this._config.tabs[this._activeTab]?.type === "players";
+    this.shadowRoot.querySelectorAll(".ov-btn, .ov-head, .mini-ov").forEach((b) => b.classList.toggle("active", on));
+  }
+
   _showPlayers() {
+    this._markOv();
     const content = this.$("content");
     content.innerHTML = `<div class="ovw-grid" id="ovwGrid"></div>`;
     content.scrollTop = 0;
@@ -1634,6 +1641,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (this._tabState[prev] && !this._pv) this._tabState[prev].scroll = this.$("content").scrollTop;
     this._pv = false;
     this._activeTab = i;
+    this._markOv();
     this._save();
     this.shadowRoot.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", +b.dataset.tab === i));
     this.shadowRoot.querySelector(`.tab[data-tab="${i}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -2171,6 +2179,11 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .ov-btn { display:flex; align-items:center; gap:10px; border:0; border-radius:12px; padding:0 12px; min-height: var(--tap); cursor:pointer;
   background: rgba(127,127,127,.12); color: inherit; font:inherit; font-size:14px; font-weight:500; margin-top:auto; flex:none; }
 .ov-btn:hover { background: rgba(127,127,127,.2); }
+.ov-btn.active, .ov-head.active, .mini-ov.active { position:relative; color: var(--sidebar-selected-text-color, var(--primary-color)); background: none; }
+.ov-btn.active::before, .ov-head.active::before, .mini-ov.active::before { content:""; position:absolute; inset:0; border-radius:inherit;
+  background: var(--sidebar-selected-icon-color, var(--primary-color)); opacity:.12; }
+.ov-btn.active ha-icon, .ov-head.active ha-icon, .mini-ov.active ha-icon { color: var(--sidebar-selected-icon-color, var(--primary-color)); }
+.ov-btn.active > *, .ov-head.active > *, .mini-ov.active > * { position:relative; }
 .ov-btn > span { flex:1; text-align:left; } .ov-chev { --mdc-icon-size:18px; color: var(--secondary-text-color); }
 .stack .ov-btn { display:none; } .side .ov-head { display:none; }
 .ovw-grid { padding-top:8px; display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:14px; }
