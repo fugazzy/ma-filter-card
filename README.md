@@ -162,66 +162,68 @@ Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:
 
 Gemeinsame Optionen: `name`, `icon`, `filter`, `favorites` (Startzustand des Favoriten-Schalters), `show_favorites_toggle` (Standard `true`), `order_by` (z. B. `name`, `name_desc`, `timestamp_added_desc`, `last_played_desc`, `play_count_desc`, `year_desc`, `random`), `limit`, `max_scan`.
 
-### Suchbegriffe aus einem Helfer (z. B. per KI gefüllt)
+### Liste aus einem Helfer als Filter (z. B. per KI gefüllt)
 
-Mit `terms_entity` liest ein Tab seine Suchbegriffe aus einer Entität. Die Karte sucht jeden Begriff einzeln in der Bibliothek und zeigt alle Treffer zusammen; Music Assistant findet dabei auch Interpreten-Namen. Ein zusätzlicher `filter` gilt weiterhin. Ändert sich die Entität, lädt der Tab neu.
+Im Filter gibt es den Operator **„in Liste (Helfer)“** (`@`). Die Bedingung passt, wenn das Feld einen der Begriffe aus einer Entität enthält:
+
+```yaml
+- type: albums          # oder tracks, playlists …
+  name: Kölsch
+  filter: artist@todo.kolsche_interpreten
+```
+
+Er lässt sich wie jede andere Bedingung kombinieren, z. B. `artist@todo.kolsche_interpreten and year>=1990`. Ändert sich die Liste, lädt der Tab neu.
 
 | Entität | Woher die Begriffe kommen |
 |---|---|
+| `todo` | alle offenen Einträge (bearbeitbar in HA, ohne Längengrenze; abgehakte Einträge zählen nicht) |
 | `input_text`, `text`, `input_select`, `sensor` | Zustand, getrennt durch `,` `;` `\|` oder Zeilenumbruch; oder ein Attribut `terms` mit einer Liste |
-| `todo` | alle offenen Einträge der Liste (ohne 255-Zeichen-Grenze) |
 
-Optionen:
+- Bei Alben und Titeln sucht die Karte jeden Begriff einzeln in der Bibliothek (`list_limit` Treffer pro Begriff, Standard 50), statt die ganze Bibliothek zu durchsuchen.
+- **Playlisten** haben keinen Interpreten. Ein Interpreten-Filter passt bei einer Playlist, wenn mindestens die Hälfte ihrer Titel passt (Tab-Option `artist_share`, Standard `0.5`). Dazu lädt die Karte die Titel aller Playlisten einmal und merkt sie sich.
 
-| Option | Bedeutung |
-|---|---|
-| `terms_entity` | Entität mit den Suchbegriffen |
-| `terms_field` | `artist`: Begriffe müssen im Interpreten stehen (sonst Name, Interpret oder Album) |
-| `terms_limit` | Treffer pro Begriff (Standard 50) |
-| `terms_share` | Playlisten: Anteil der Titel von passenden Interpreten, ab dem eine Playlist passt (Standard `0.5`); ein Begriff im Playlist-Namen genügt immer |
-| `switch_types` | Umschalter in der Werkzeugleiste, z. B. `[album, track, playlist]` |
-
-Beispiel: ein Tab „Kölsch“, der eine bearbeitbare To-do-Liste mit Interpreten nutzt und zwischen Alben, Titeln und Playlisten umschaltet:
+Ein Skript, das eine To-do-Liste per KI aus den Interpreten der Mediathek füllt (HA 2025.8+ mit AI-Task und mass_queue):
 
 ```yaml
-- type: albums
-  name: Kölsch
-  icon: mdi:glass-mug-variant
-  terms_entity: todo.kolsche_interpreten
-  terms_field: artist
-  switch_types: [album, track, playlist]
-```
-
-Abgehakte Einträge der To-do-Liste zählen nicht; so lässt sich ein Interpret vorübergehend ausschließen.
-
-```yaml
-- type: tracks
-  name: KI-Mix
-  icon: mdi:creation
-  terms_entity: input_text.musik_suchbegriffe
-```
-
-Ein Skript, das den Helfer per KI füllt (HA 2025.8+ mit einer AI-Task-Entität):
-
-```yaml
-alias: Musik-Suchbegriffe per KI
+alias: Musik-Interpreten per KI
 fields:
-  wunsch:
-    selector: { text: {} }
+  wunsch: { selector: { text: {} } }
+  liste: { selector: { entity: { filter: [{ domain: todo }] } } }
 sequence:
+  - variables: { namen: [], seite: { response: [] } }
+  - repeat:
+      sequence:
+        - action: mass_queue.send_command
+          data:
+            config_entry_id: <mass_queue-Eintrag>
+            command: music/artists/library_items
+            data: { limit: 500, offset: "{{ (repeat.index - 1) * 500 }}" }
+          response_variable: seite
+        - variables: { namen: "{{ namen + (seite.response | map(attribute='name') | list) }}" }
+      until: "{{ seite.response | length < 500 }}"
   - action: ai_task.generate_data
     data:
-      task_name: Musik Suchbegriffe
+      task_name: Musik Interpreten
       instructions: >-
-        Erzeuge höchstens 15 Suchbegriffe (bevorzugt Interpretennamen) für eine
-        Musikbibliothek zu diesem Wunsch: "{{ wunsch }}". Keine Erklärungen.
+        Interpreten der Bibliothek: {{ namen | join(' | ') }}.
+        Wähle ALLE aus, die passen zu: "{{ wunsch }}". Nur exakte Namen aus der Liste.
       structure:
-        terms: { required: true, selector: { text: { multiple: true } } }
+        interpreten: { required: true, selector: { text: { multiple: true } } }
     response_variable: ki
-  - action: input_text.set_value
-    target: { entity_id: input_text.musik_suchbegriffe }
-    data:
-      value: "{{ (ki.data.terms | join(', '))[:255] }}"
+  - action: todo.get_items
+    target: { entity_id: "{{ liste }}" }
+    response_variable: alt
+  - if: "{{ alt[liste]['items'] | length > 0 }}"
+    then:
+      - action: todo.remove_item
+        target: { entity_id: "{{ liste }}" }
+        data: { item: "{{ alt[liste]['items'] | map(attribute='summary') | list }}" }
+  - repeat:
+      for_each: "{{ ki.data.interpreten | select('in', namen) | unique | list }}"
+      sequence:
+        - action: todo.add_item
+          target: { entity_id: "{{ liste }}" }
+          data: { item: "{{ repeat.item }}" }
 ```
 
 ## Filter
@@ -239,6 +241,7 @@ filter: 'genre:*rock* and (year>=1990 or like:true) and not artist:"Pink Floyd"'
 | `feld:wert` | enthält (ohne Platzhalter) bzw. passt auf Muster (mit Platzhaltern) |
 | `feld=wert` | exakt (Groß-/Kleinschreibung und Akzente egal) |
 | `feld!=wert` | passt nicht |
+| `feld@entity` | in Liste: passt auf einen der Begriffe aus einem Helfer, z. B. `artist@todo.kolsche_interpreten` (siehe oben) |
 | `*` / `?` | beliebig viele Zeichen / genau ein Zeichen, z. B. `name:B?hemian*` |
 | `/regex/` | regulärer Ausdruck, z. B. `album:/live|unplugged/` |
 | `year>=1990`, `year<1980`, `year:1970-1979` | Zahlenvergleich bzw. Bereich |

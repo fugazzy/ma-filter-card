@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.10.0";
+const MAFC_VERSION = "0.11.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -30,7 +30,6 @@ const STRINGS = {
     no_entry: "Music-Assistant-Instanz nicht gefunden. Bitte config_entry_id in der Karte setzen.",
     grouped_with: "gruppiert mit", not_groupable: "Dieser Player kann nicht gruppiert werden",
     filter_error: "Filterfehler",
-    mt_album: "Alben", mt_track: "Titel", mt_playlist: "Playlisten", mt_artist: "Interpreten", mt_radio: "Radio",
   },
   en: {
     playlists: "Playlists", albums: "Albums", tracks: "Tracks", artists: "Artists",
@@ -57,7 +56,6 @@ const STRINGS = {
     no_entry: "Music Assistant instance not found. Please set config_entry_id on the card.",
     grouped_with: "grouped with", not_groupable: "This player cannot be grouped",
     filter_error: "Filter error",
-    mt_album: "Albums", mt_track: "Tracks", mt_playlist: "Playlists", mt_artist: "Artists", mt_radio: "Radio",
   },
 };
 
@@ -105,6 +103,7 @@ const icon = (name, cls = "") => `<ha-icon class="${cls}" icon="${esc(name)}"></
  *      genre:Rock* and not artist:"Pink Floyd" or (year>=1990 and favorite:true)
  *    Operatoren: and/und/&&, or/oder/||, not/nicht/!, Klammern. Nebeneinander = and.
  *    Feld-Operatoren:  :  (enthält / Platzhalter)   =  (exakt)   !=  (nicht)
+ *                      @  (in Liste: artist@todo.kolsche_interpreten – Begriffe aus einem Helfer)
  *                      >= <= > <  (Zahlen: year)     year:1970-1979 (Bereich)
  *    Werte: * = beliebig viele Zeichen, ? = genau ein Zeichen, /regex/ = regulärer Ausdruck
  *    Ein Wort ohne Feld sucht im Namen.
@@ -179,7 +178,7 @@ function parseFilterString(str) {
     }
     if (t === ")") throw new Error("Unerwartete „)“");
     if (/^["']/.test(t)) return { field: "name", op: ":", value: unquote(t) };
-    const m = /^([A-Za-zÄÖÜäöüß_]+)(>=|<=|!=|=|>|<|:)(.*)$/.exec(t);
+    const m = /^([A-Za-zÄÖÜäöüß_]+)(>=|<=|!=|=|>|<|:|@)(.*)$/.exec(t);
     if (!m) return { field: "name", op: ":", value: t };
     const field = FIELD_ALIASES[m[1].toLowerCase()];
     if (!field) throw new Error(`Unbekanntes Feld „${m[1]}“`);
@@ -194,6 +193,8 @@ function parseFilterString(str) {
 }
 
 function makeCond(field, op, value) {
+  if (op === ":" && typeof value === "string" && /^@[a-z_]+\.\w+$/.test(value.trim())) return { field, op: "@", value: value.trim().slice(1) };
+  if (op === "@") return { field, op, value: String(value).trim() };
   if (op === ":" && typeof value === "string") {
     const m = /^\s*(>=|<=|!=|=|>|<)\s*(.*)$/.exec(value);
     if (m) { op = m[1]; value = m[2]; }
@@ -290,10 +291,44 @@ function evalFilter(ast, item) {
       default: return n === x;
     }
   }
+  // Interpret einer Playlist: passt, wenn genug ihrer Titel passen (Anteil item._share, Standard 0,5)
+  if (field === "artist" && item.media_type === "playlist" && item._tracks) {
+    if (!item._tracks.length) return op === "!=";
+    const one = { field, op: op === "!=" ? ":" : op, value };
+    const n = item._tracks.filter((x) => evalFilter(one, x)).length;
+    const res = n > 0 && n / item._tracks.length >= (item._share ?? 0.5);
+    return op === "!=" ? !res : res;
+  }
   const vals = fieldValues(item, field);
+  if (op === "@") {
+    const terms = (LIST_TERMS.get(value) || []).map(fold);
+    return vals.some((v) => { const fv = fold(v); return terms.some((t) => fv.includes(t)); });
+  }
   const test = compilePattern(op, value);
   if (op === "!=") return !vals.some(test);
   return vals.some(test);
+}
+/* Begriffe der Listen-Helfer (entity_id → Begriffe), von der Karte vor dem Filtern geladen */
+const LIST_TERMS = new Map();
+function listRefs(ast, out = []) {
+  if (!ast) return out;
+  if (ast.and || ast.or) (ast.and || ast.or).forEach((a) => listRefs(a, out));
+  else if (ast.not) listRefs(ast.not, out);
+  else if (ast.op === "@" && !out.includes(ast.value)) out.push(ast.value);
+  return out;
+}
+function astHasField(ast, f) {
+  if (!ast) return false;
+  if (ast.and || ast.or) return (ast.and || ast.or).some((a) => astHasField(a, f));
+  if (ast.not) return astHasField(ast.not, f);
+  return ast.field === f;
+}
+/* Eine positive Listen-Bedingung auf oberster Ebene (direkt oder in „und“) – für die Suche pro Begriff */
+function topListCond(ast) {
+  if (!ast) return null;
+  if (ast.op === "@" && ["artist", "name", "album"].includes(ast.field)) return ast;
+  if (ast.and) for (const a of ast.and) { const c = topListCond(a); if (c) return c; }
+  return null;
 }
 
 /* ================================================================ card */
@@ -336,8 +371,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       if (type === "playlist" && !t.uri && !t.playlist) throw new Error(`Tab ${i + 1}: „uri“ oder „playlist“ fehlt`);
       let ast = null;
       try { ast = toAst(t.filter); } catch (e) { throw new Error(`Tab ${i + 1}: Filter – ${e.message}`); }
-      const sw = typeof t.switch_types === "string" ? t.switch_types.split(/[\s,;]+/).filter(Boolean) : t.switch_types;
-      return { ...t, type, ...(sw ? { switch_types: sw.filter((m) => PLURAL[m]) } : {}), _ast: ast };
+      return { ...t, type, _ast: ast };
     });
     const sb = config.sidebar || {};
     this._config = {
@@ -1304,7 +1338,7 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   _onHass() {
     if (!this._built) return;
-    this._checkTerms();
+    this._checkLists();
     const main = this._main();
     const players = this._players();
     const ents = [...new Set([main, ...players.map((p) => p.entity)].filter(Boolean))];
@@ -1672,15 +1706,14 @@ class MusicAssistantFilterCard extends HTMLElement {
     };
   }
 
-  /* Suchbegriffe aus einer Entität (Helfer): input_text/text/sensor → Zustand oder Attribut „terms“
-   * (Trennzeichen , ; | Zeilenumbruch), todo-Liste → offene Einträge. */
-  _termsSig(tab) {
-    const s = tab.terms_entity && this._hass?.states[tab.terms_entity];
+  /* Listen-Helfer: input_text/text/sensor → Zustand (Trennzeichen , ; | Zeilenumbruch) oder Attribut „terms“,
+   * todo-Liste → offene Einträge. */
+  _listSig(id) {
+    const s = this._hass?.states[id];
     return s ? JSON.stringify([s.state, s.attributes.terms, s.last_updated]) : "";
   }
-  async _terms(tab) {
-    const id = tab.terms_entity;
-    const s = id && this._hass.states[id];
+  async _listTerms(id) {
+    const s = this._hass.states[id];
     if (!s) return [];
     let list;
     if (id.startsWith("todo.")) {
@@ -1691,66 +1724,44 @@ class MusicAssistantFilterCard extends HTMLElement {
     const seen = new Set();
     return list.map((x) => String(x ?? "").trim()).filter((x) => x && !seen.has(fold(x)) && seen.add(fold(x)));
   }
-  _termsMatch(terms, x, field = "any") {
-    if (!terms) return true;
-    if (field === "artist") {
-      const arts = (x.artists || []).map(fold);
-      return terms.some((t) => { const ft = fold(t); return arts.some((a) => a.includes(ft)); });
-    }
-    const hay = fold([x.name, ...(x.artists || []), x.album].join(" "));
-    return terms.some((t) => hay.includes(fold(t)));
+  async _loadLists(tab) {
+    const refs = listRefs(tab._ast);
+    this._listSigs = this._listSigs || {};
+    await Promise.all(refs.map(async (id) => {
+      const sig = this._listSig(id);
+      if (LIST_TERMS.has(id) && this._listSigs[id] === sig) return;
+      LIST_TERMS.set(id, await this._listTerms(id).catch(() => []));
+      this._listSigs[id] = sig;
+    }));
   }
-  /* Playlisten haben keine Interpreten: eine Playliste passt, wenn ihr Name einen Begriff enthält
-   * oder mindestens terms_share (Standard 0,5) ihrer Titel von passenden Interpreten stammen. */
-  async _termsPlaylists(i, tab, terms, gen) {
-    const st = this._state(i);
-    const share = tab.terms_share ?? 0.5, q = fold(st.search);
-    const all = [];
-    for (let off = 0; ; off += 500) {
-      const page = await this._fetchLibrary("playlist", { offset: off, limit: 500, favorite: st.favOnly, order_by: tab.order_by || "name" });
-      all.push(...page);
-      if (page.length < 500) break;
-    }
-    if (gen !== st.gen) return;
-    const lists = all.filter((p) => evalFilter(tab._ast, p) && (!q || fold(p.name).includes(q)));
-    this._plTracks = this._plTracks || new Map();
-    const ft = terms.map(fold);
-    for (let k = 0; k < lists.length; k += 6) {
-      const part = lists.slice(k, k + 6);
-      const hits = await Promise.all(part.map(async (p) => {
-        if (ft.some((t) => fold(p.name).includes(t))) return true;
-        let tr = this._plTracks.get(p.uri);
-        if (!tr) { tr = await this._fetchChildren("playlist", p.uri).catch(() => []); this._plTracks.set(p.uri, tr); }
-        if (!tr.length) return false;
-        const n = tr.filter((x) => this._termsMatch(terms, x, "artist")).length;
-        return n > 0 && n / tr.length >= share;
-      }));
-      if (gen !== st.gen) return;
-      st.scanned += part.length;
-      this._pushItems(i, part.filter((_, j) => hits[j]));
-      this._updateStatus(st.items.length);
-    }
-  }
-  _mediaType(tab, st) {
-    const def = TAB_TYPES[tab.type];
-    const sw = tab.switch_types;
-    if (Array.isArray(sw) && sw.length) return sw.includes(st.mt) ? st.mt : sw[0];
-    return tab.media_type || def.media_type;
-  }
-  _checkTerms() {
+  _checkLists() {
+    if (!this._listSigs) return;
+    const changed = Object.keys(this._listSigs).filter((id) => this._listSig(id) !== this._listSigs[id]);
+    if (!changed.length) return;
+    changed.forEach((id) => LIST_TERMS.delete(id));
     (this._config.tabs || []).forEach((tab, i) => {
-      if (!tab.terms_entity) return;
-      const sig = this._termsSig(tab);
-      this._termSigs = this._termSigs || {};
-      if (this._termSigs[i] === undefined) { this._termSigs[i] = sig; return; }
-      if (this._termSigs[i] === sig) return;
-      this._termSigs[i] = sig;
+      if (!listRefs(tab._ast).some((id) => changed.includes(id))) return;
       const st = this._tabState[i];
       if (!st) return;
       st.stack = [];
       if (i === this._activeTab && !this._pv && !this._vq) { this._renderToolbar(); this._resetTab(i); }
       else { st.items = []; st.done = false; st.children = null; }
     });
+  }
+  /* Playlisten mit ihren Titeln anreichern (für Interpreten-Filter), Titel werden zwischengespeichert */
+  async _withTracks(lists, tab, gen, st) {
+    this._plTracks = this._plTracks || new Map();
+    for (let k = 0; k < lists.length; k += 6) {
+      await Promise.all(lists.slice(k, k + 6).map(async (p) => {
+        let tr = this._plTracks.get(p.uri);
+        if (!tr) { tr = await this._fetchChildren("playlist", p.uri).catch(() => []); this._plTracks.set(p.uri, tr); }
+        p._tracks = tr; p._share = tab.artist_share ?? 0.5;
+      }));
+      if (gen !== st.gen) return false;
+      st.scanned = Math.min(lists.length, k + 6);
+      this._updateStatus(st.items.length);
+    }
+    return true;
   }
 
   _state(i) {
@@ -1821,7 +1832,6 @@ class MusicAssistantFilterCard extends HTMLElement {
       bar.innerHTML = `
         ${drill ? `<button class="ib" data-tb="back" title="${esc(this._t("back"))}">${icon("mdi:arrow-left")}</button><div class="tb-title"><span>${esc(drill.name)}</span></div>` : ""}
         ${drill || tab.type === "playlist" ? `<span class="tb-play"><button class="ib play-all" data-tb="pl-replace" title="${esc(this._t("play_replace"))}">${icon("mdi:play")}</button><button class="ib" data-tb="pl-next" title="${esc(this._t("play_next"))}">${icon("mdi:playlist-play")}</button><button class="ib" data-tb="pl-add" title="${esc(this._t("add_queue"))}">${icon("mdi:playlist-plus")}</button></span>` : ""}
-        ${!drill && Array.isArray(tab.switch_types) && tab.switch_types.length > 1 ? `<span class="mt-seg">${tab.switch_types.map((m) => `<button class="${m === this._mediaType(tab, st) ? "on" : ""}" data-tb="mt" data-mt="${esc(m)}" title="${esc(this._t("mt_" + m))}">${icon(TYPE_ICON[m] || "mdi:music")}<span>${esc(this._t("mt_" + m))}</span></button>`).join("")}</span>` : ""}
         <label class="search">${icon("mdi:magnify")}<input id="search" type="search" placeholder="${esc(this._t("search"))}" value="${esc(st.search)}" enterkeyhint="search"></label>
         ${tab.show_favorites_toggle === false ? "" : `<button class="fav-toggle${st.favOnly ? " on" : ""}" data-tb="fav" title="${esc(this._t("favorites"))}">${icon(st.favOnly ? "mdi:heart" : "mdi:heart-outline")}<span>${esc(this._t("favorites"))}</span></button>`}
         <button class="ib" data-tb="refresh" title="${esc(this._t("refresh"))}">${icon("mdi:refresh")}</button>`;
@@ -1836,7 +1846,6 @@ class MusicAssistantFilterCard extends HTMLElement {
       if (!b) return;
       switch (b.dataset.tb) {
         case "fav": st.favOnly = !st.favOnly; this._renderToolbar(); this._resetTab(i); break;
-        case "mt": if (st.mt !== b.dataset.mt) { st.mt = b.dataset.mt; this._renderToolbar(); this._resetTab(i); } break;
         case "refresh": this._isQueue() ? this._loadQueue(true) : this._resetTab(i); break;
         case "back": st.stack.pop(); this._renderToolbar(); this._resetTab(i); break;
         case "pl-replace": case "pl-next": case "pl-add": this._playList(i, b.dataset.tb.slice(3)); break;
@@ -1895,10 +1904,9 @@ class MusicAssistantFilterCard extends HTMLElement {
         }
         if (gen !== st.gen) return;
         const ast = drill ? null : tab._ast;
-        const terms = !drill && tab.terms_entity ? await this._terms(tab) : null;
-        if (gen !== st.gen) return;
+        if (ast) { await this._loadLists(tab); if (gen !== st.gen) return; }
         const q = fold(st.search);
-        const out = st.children.filter((x) => (!st.favOnly || x.favorite) && evalFilter(ast, x) && this._termsMatch(terms, x, tab.terms_field)
+        const out = st.children.filter((x) => (!st.favOnly || x.favorite) && evalFilter(ast, x)
           && (!q || fold([x.name, ...(x.artists || []), x.album].join(" ")).includes(q)));
         st.scanned = st.children.length;
         st.done = true;
@@ -1906,33 +1914,46 @@ class MusicAssistantFilterCard extends HTMLElement {
         return;
       }
       const def = TAB_TYPES[tab.type];
-      const media_type = this._mediaType(tab, st);
-      const order_by = tab.order_by || (tab.switch_types ? "name" : def.order_by);
+      const media_type = tab.media_type || def.media_type;
+      const order_by = tab.order_by || def.order_by;
       const pageSize = Math.max(25, Math.min(500, this._config.page_size));
       const want = pageSize;
       let added = [];
       const limitTotal = tab.limit || Infinity;
       const gmap = await this._genreMap(tab, media_type).catch(() => null);
       if (gen !== st.gen) return;
-      if (tab.terms_entity) {
-        // Pro Suchbegriff eine Bibliothekssuche (MA findet dabei auch Interpreten-Namen)
-        const terms = await this._terms(tab);
+      if (tab._ast) { await this._loadLists(tab); if (gen !== st.gen) return; }
+      const q = fold(st.search);
+      const finish = (res) => { st.done = true; this._pushItems(i, Number.isFinite(limitTotal) ? res.slice(0, limitTotal) : res); };
+      if (media_type === "playlist" && astHasField(tab._ast, "artist")) {
+        // Playlisten nach Interpret: alle Playlisten laden, ihre Titel prüfen
+        const all = [];
+        for (let off = 0; ; off += 500) {
+          const page = await this._fetchLibrary("playlist", { offset: off, limit: 500, favorite: st.favOnly, order_by });
+          all.push(...page);
+          if (page.length < 500) break;
+        }
         if (gen !== st.gen) return;
-        if (media_type === "playlist") { await this._termsPlaylists(i, tab, terms, gen); if (gen === st.gen) st.done = true; return; }
-        const per = tab.terms_limit || 50, q = fold(st.search), field = tab.terms_field || "any";
+        const lists = all.filter((p) => !q || fold(p.name).includes(q));
+        if (!(await this._withTracks(lists, tab, gen, st))) return;
+        finish(lists.filter((p) => evalFilter(tab._ast, p)));
+        return;
+      }
+      const lc = topListCond(tab._ast);
+      if (lc && media_type !== "radio") {
+        // Pro Begriff der Liste eine Bibliothekssuche statt die ganze Bibliothek zu durchsuchen
+        const terms = LIST_TERMS.get(lc.value) || [];
         const res = [];
         for (let k = 0; k < terms.length; k += 4) {
           const chunk = await Promise.all(terms.slice(k, k + 4).map((t) => this._fetchLibrary(media_type, {
-            offset: 0, limit: per, favorite: st.favOnly, search: t, order_by,
-            album_type: tab.album_type }).catch(() => [])));
+            offset: 0, limit: tab.list_limit || 50, favorite: st.favOnly, search: t, order_by, album_type: tab.album_type }).catch(() => [])));
           if (gen !== st.gen) return;
           chunk.forEach((raw) => res.push(...this._applyGenres(raw, gmap).filter((x) => evalFilter(tab._ast, x)
-            && (field !== "artist" || this._termsMatch(terms, x, "artist"))
             && (!q || fold([x.name, ...(x.artists || []), x.album].join(" ")).includes(q)))));
           st.scanned += chunk.reduce((a, r) => a + r.length, 0);
         }
-        st.done = true;
-        this._pushItems(i, Number.isFinite(limitTotal) ? res.slice(0, limitTotal) : res);
+        if (/name/.test(order_by || "")) res.sort((a, b) => a.name.localeCompare(b.name) * (/desc/.test(order_by) ? -1 : 1));
+        finish(res);
         return;
       }
       while (added.length < want && !st.done) {
@@ -2433,13 +2454,7 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .fav-toggle ha-icon { --mdc-icon-size:20px; }
 .fav-toggle.on { background: color-mix(in srgb, var(--error-color, #e91e63) 16%, transparent); border-color: var(--error-color, #e91e63); color: var(--error-color, #e91e63); }
 .compact .fav-toggle span { display:none; } .compact .fav-toggle { padding: 0 10px; }
-.mt-seg { display:flex; height: var(--tap); border-radius:999px; overflow:hidden; border: 1.5px solid var(--divider-color, rgba(127,127,127,.3)); flex-shrink:0; }
-.mt-seg button { display:flex; align-items:center; gap:6px; padding: 0 12px; border:0; background:transparent; color: inherit; font: inherit; font-size:14px; font-weight:500; cursor:pointer; -webkit-tap-highlight-color: transparent; }
-.mt-seg button + button { border-left: 1px solid var(--divider-color, rgba(127,127,127,.3)); }
-.mt-seg button ha-icon { --mdc-icon-size:20px; }
-.mt-seg button.on { background: color-mix(in srgb, var(--sidebar-selected-icon-color, var(--primary-color)) 18%, transparent); color: var(--sidebar-selected-text-color, var(--primary-color)); }
-.compact .mt-seg span { display:none; } .compact .mt-seg button { padding: 0 10px; }
-
+.compact 
 .content { flex:1; overflow-y:auto; overflow-x:hidden; padding: 4px 12px 16px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr)); gap: 14px 12px; }
 .tile { cursor:pointer; min-width:0; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color: transparent;
@@ -2528,7 +2543,7 @@ const ED_FIELDS = [
 ];
 const ED_KIND = Object.fromEntries(ED_FIELDS.map((f) => [f[0], f[2]]));
 const ED_OPS = {
-  text: [[":", "enthält / Muster"], ["=", "ist genau"], ["!=", "ist nicht"]],
+  text: [[":", "enthält / Muster"], ["=", "ist genau"], ["!=", "ist nicht"], ["@", "in Liste (Helfer)"]],
   num: [[">=", "mindestens"], ["<=", "höchstens"], ["=", "gleich"], [">", "größer"], ["<", "kleiner"], [":", "Bereich a-b"]],
   bool: [[":", "ist"]],
 };
@@ -2833,9 +2848,6 @@ class MaFilterCardEditor extends HTMLElement {
     if (t.type === "recent") extra += `<label>Medientyp${this._sel(`data-t="${i}" data-k="media_type"`, [["", "Alben"], ["track", "Titel"], ["playlist", "Playlisten"], ["artist", "Interpreten"], ["radio", "Radio"]], t.media_type)}</label>`;
     if (!["queue", "playlist", "players"].includes(t.type)) extra += `<label>Sortierung${this._sel(`data-t="${i}" data-k="order_by"`, ED_ORDER, t.order_by)}</label>
       <label>Max. Anzahl<input type="number" min="1" data-t="${i}" data-n="limit" value="${esc(t.limit ?? "")}" placeholder="unbegrenzt"></label>`;
-    if (!["queue", "players"].includes(t.type)) extra += `<label>Suchbegriffe aus Helfer<input data-t="${i}" data-k="terms_entity" list="mafcTermEnts" autocomplete="off" value="${esc(t.terms_entity || "")}" placeholder="input_text.… / todo.…"></label>
-      <label>Begriffe vergleichen mit${this._sel(`data-t="${i}" data-k="terms_field"`, [["", "Name, Interpret, Album"], ["artist", "nur Interpret"]], t.terms_field)}</label>`;
-    if (["albums", "tracks", "playlists"].includes(t.type)) extra += `<label>Umschalter Alben/Titel/Playlisten<input data-t="${i}" data-k="switch_types" value="${esc([].concat(t.switch_types || []).join(", "))}" placeholder="z. B. album, track, playlist"></label>`;
     return `<div class="tabbox${open ? " open" : ""}">
       <div class="tabhead">
         <button class="ib" data-act="tab-toggle" data-t="${i}">${icon(open ? "mdi:chevron-down" : "mdi:chevron-right")}</button>
@@ -2895,7 +2907,9 @@ class MaFilterCardEditor extends HTMLElement {
     const d = `data-t="${ti}" data-p="${p}"`;
     const val = kind === "bool"
       ? this._sel(`${d} data-r="value"`, [["true", "ja"], ["false", "nein"]], r.value === "false" ? "false" : "true")
-      : `<input ${d} data-r="value"${["artist", "album", "name"].includes(r.field) ? ' data-sug="rule" autocomplete="off"' : ""} value="${esc(r.value)}" placeholder="${kind === "num" ? (r.op === ":" ? "1970-1979" : "1990") : "z. B. Rock* oder Queen"}"${kind === "num" && r.op !== ":" ? ' inputmode="decimal"' : ""}>`;
+      : r.op === "@"
+        ? `<input ${d} data-r="value" list="mafcTermEnts" autocomplete="off" value="${esc(r.value)}" placeholder="todo.… / input_text.…">`
+        : `<input ${d} data-r="value"${["artist", "album", "name"].includes(r.field) ? ' data-sug="rule" autocomplete="off"' : ""} value="${esc(r.value)}" placeholder="${kind === "num" ? (r.op === ":" ? "1970-1979" : "1990") : "z. B. Rock* oder Queen"}"${kind === "num" && r.op !== ":" ? ' inputmode="decimal"' : ""}>`;
     return `<div class="rule${r.not ? " neg" : ""}">
       <label class="chk sm"><input type="checkbox" ${d} data-r="not"${r.not ? " checked" : ""}><span>NICHT</span></label>
       ${this._sel(`${d} data-r="field"`, ED_FIELDS.map((f) => [f[0], f[1]]), r.field)}
@@ -3007,7 +3021,7 @@ class MaFilterCardEditor extends HTMLElement {
           const kind = ED_KIND[el.value];
           n.field = el.value; n.op = ED_OPS[kind][0][0]; n.value = kind === "bool" ? "true" : (ED_KIND[n.field] === ED_KIND[el.value] ? n.value : "");
           rerender = true;
-        } else if (ds.r === "op") { n.op = el.value; rerender = true; }
+        } else if (ds.r === "op") { if ((n.op === "@") !== (el.value === "@")) n.value = ""; n.op = el.value; rerender = true; }
         else n.value = el.value;
         this._errs[ti] = null;
       } else if (ds.gnot) { this._node(ti, ds.p).not = el.checked; this._errs[ti] = null; rerender = true; }
