@@ -179,7 +179,8 @@ Er lässt sich wie jede andere Bedingung kombinieren, z. B. `artist@todo.kolsche
 | `todo` | alle offenen Einträge (bearbeitbar in HA, ohne Längengrenze; abgehakte Einträge zählen nicht) |
 | `input_text`, `text`, `input_select`, `sensor` | Zustand, getrennt durch `,` `;` `\|` oder Zeilenumbruch; oder ein Attribut `terms` mit einer Liste |
 
-- Bei Alben und Titeln sucht die Karte jeden Begriff einzeln in der Bibliothek (`list_limit` Treffer pro Begriff, Standard 50), statt die ganze Bibliothek zu durchsuchen.
+- Für Komponisten, die oft nur im Albumtitel stehen, bietet sich `artist@todo.klassik_komponisten or album@todo.klassik_komponisten` an.
+- Bei Alben und Titeln sucht die Karte jeden Begriff einzeln in der Bibliothek (auch bei einem „oder“ aus lauter Listen-Bedingungen) (`list_limit` Treffer pro Begriff, Standard 50), statt die ganze Bibliothek zu durchsuchen.
 - **Playlisten** haben keinen Interpreten. Ein Interpreten-Filter passt bei einer Playlist, wenn mindestens die Hälfte ihrer Titel passt (Tab-Option `artist_share`, Standard `0.5`). Dazu lädt die Karte die Titel aller Playlisten einmal und merkt sie sich.
 
 Ein Skript, das eine To-do-Liste per KI aus den Interpreten der Mediathek füllt (HA 2025.8+ mit AI-Task und mass_queue):

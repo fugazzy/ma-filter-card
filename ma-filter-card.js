@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.11.0";
+const MAFC_VERSION = "0.11.1";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -323,10 +323,12 @@ function astHasField(ast, f) {
   if (ast.not) return astHasField(ast.not, f);
   return ast.field === f;
 }
-/* Eine positive Listen-Bedingung auf oberster Ebene (direkt oder in „und“) – für die Suche pro Begriff */
+/* Listen, deren Begriffe jeder Treffer enthalten muss: eine positive Listen-Bedingung auf oberster Ebene
+ * (direkt oder in „und“) oder ein „oder“ aus lauter Listen-Bedingungen – für die Suche pro Begriff */
 function topListCond(ast) {
   if (!ast) return null;
-  if (ast.op === "@" && ["artist", "name", "album"].includes(ast.field)) return ast;
+  if (ast.op === "@" && ["artist", "name", "album"].includes(ast.field)) return [ast.value];
+  if (ast.or && ast.or.every((a) => a.op === "@" && ["artist", "name", "album"].includes(a.field))) return [...new Set(ast.or.map((a) => a.value))];
   if (ast.and) for (const a of ast.and) { const c = topListCond(a); if (c) return c; }
   return null;
 }
@@ -1942,7 +1944,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       const lc = topListCond(tab._ast);
       if (lc && media_type !== "radio") {
         // Pro Begriff der Liste eine Bibliothekssuche statt die ganze Bibliothek zu durchsuchen
-        const terms = LIST_TERMS.get(lc.value) || [];
+        const terms = [...new Set(lc.flatMap((id) => LIST_TERMS.get(id) || []))];
         const res = [];
         for (let k = 0; k < terms.length; k += 4) {
           const chunk = await Promise.all(terms.slice(k, k + 4).map((t) => this._fetchLibrary(media_type, {
