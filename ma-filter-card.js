@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.8.0";
+const MAFC_VERSION = "0.9.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -1301,6 +1301,7 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   _onHass() {
     if (!this._built) return;
+    this._checkTerms();
     const main = this._main();
     const players = this._players();
     const ents = [...new Set([main, ...players.map((p) => p.entity)].filter(Boolean))];
@@ -1668,6 +1669,46 @@ class MusicAssistantFilterCard extends HTMLElement {
     };
   }
 
+  /* Suchbegriffe aus einer Entität (Helfer): input_text/text/sensor → Zustand oder Attribut „terms“
+   * (Trennzeichen , ; | Zeilenumbruch), todo-Liste → offene Einträge. */
+  _termsSig(tab) {
+    const s = tab.terms_entity && this._hass?.states[tab.terms_entity];
+    return s ? JSON.stringify([s.state, s.attributes.terms, s.last_updated]) : "";
+  }
+  async _terms(tab) {
+    const id = tab.terms_entity;
+    const s = id && this._hass.states[id];
+    if (!s) return [];
+    let list;
+    if (id.startsWith("todo.")) {
+      const r = await this._svc("todo", "get_items", { status: ["needs_action"] }, { entity_id: id }, true);
+      list = (r?.[id]?.items || []).map((x) => x.summary);
+    } else if (Array.isArray(s.attributes.terms)) list = s.attributes.terms;
+    else list = ["unknown", "unavailable"].includes(s.state) ? [] : String(s.state).split(/[,;|\n]+/);
+    const seen = new Set();
+    return list.map((x) => String(x ?? "").trim()).filter((x) => x && !seen.has(fold(x)) && seen.add(fold(x)));
+  }
+  _termsMatch(terms, x) {
+    if (!terms) return true;
+    const hay = fold([x.name, ...(x.artists || []), x.album].join(" "));
+    return terms.some((t) => hay.includes(fold(t)));
+  }
+  _checkTerms() {
+    (this._config.tabs || []).forEach((tab, i) => {
+      if (!tab.terms_entity) return;
+      const sig = this._termsSig(tab);
+      this._termSigs = this._termSigs || {};
+      if (this._termSigs[i] === undefined) { this._termSigs[i] = sig; return; }
+      if (this._termSigs[i] === sig) return;
+      this._termSigs[i] = sig;
+      const st = this._tabState[i];
+      if (!st) return;
+      st.stack = [];
+      if (i === this._activeTab && !this._pv && !this._vq) { this._renderToolbar(); this._resetTab(i); }
+      else { st.items = []; st.done = false; st.children = null; }
+    });
+  }
+
   _state(i) {
     if (!this._tabState[i]) {
       const tab = this._config.tabs[i];
@@ -1808,8 +1849,10 @@ class MusicAssistantFilterCard extends HTMLElement {
         }
         if (gen !== st.gen) return;
         const ast = drill ? null : tab._ast;
+        const terms = !drill && tab.terms_entity ? await this._terms(tab) : null;
+        if (gen !== st.gen) return;
         const q = fold(st.search);
-        const out = st.children.filter((x) => (!st.favOnly || x.favorite) && evalFilter(ast, x)
+        const out = st.children.filter((x) => (!st.favOnly || x.favorite) && evalFilter(ast, x) && this._termsMatch(terms, x)
           && (!q || fold([x.name, ...(x.artists || []), x.album].join(" ")).includes(q)));
         st.scanned = st.children.length;
         st.done = true;
@@ -1825,6 +1868,24 @@ class MusicAssistantFilterCard extends HTMLElement {
       const limitTotal = tab.limit || Infinity;
       const gmap = await this._genreMap(tab, media_type).catch(() => null);
       if (gen !== st.gen) return;
+      if (tab.terms_entity) {
+        // Pro Suchbegriff eine Bibliothekssuche (MA findet dabei auch Interpreten-Namen)
+        const terms = await this._terms(tab);
+        const per = tab.terms_limit || 50, q = fold(st.search);
+        const res = [];
+        for (let k = 0; k < terms.length; k += 4) {
+          const chunk = await Promise.all(terms.slice(k, k + 4).map((t) => this._fetchLibrary(media_type, {
+            offset: 0, limit: per, favorite: st.favOnly, search: t, order_by,
+            album_type: tab.album_type }).catch(() => [])));
+          if (gen !== st.gen) return;
+          chunk.forEach((raw) => res.push(...this._applyGenres(raw, gmap).filter((x) => evalFilter(tab._ast, x)
+            && (!q || fold([x.name, ...(x.artists || []), x.album].join(" ")).includes(q)))));
+          st.scanned += chunk.reduce((a, r) => a + r.length, 0);
+        }
+        st.done = true;
+        this._pushItems(i, Number.isFinite(limitTotal) ? res.slice(0, limitTotal) : res);
+        return;
+      }
       while (added.length < want && !st.done) {
         const raw = await this._fetchLibrary(media_type, {
           offset: st.rawOffset, limit: pageSize, favorite: st.favOnly, search: st.search || undefined,
@@ -2554,7 +2615,8 @@ class MaFilterCardEditor extends HTMLElement {
     const tabs = c.tabs.map((t, i) => this._tabHtml(t, i)).join("");
     const mainOpts = [["", "Automatisch"], ...ordered.filter(shown).map((e) => [e, this._pn(e)])];
 
-    this.shadowRoot.innerHTML = `<style>${ED_CSS}</style>
+    const termEnts = Object.keys(this._hass?.states || {}).filter((e) => /^(input_text|text|todo|input_select)\./.test(e) || (e.startsWith("sensor.") && /such|term|filter/i.test(e))).sort();
+    this.shadowRoot.innerHTML = `<style>${ED_CSS}</style><datalist id="mafcTermEnts">${termEnts.map((e) => `<option value="${esc(e)}">${esc(this._hass.states[e]?.attributes.friendly_name || "")}</option>`).join("")}</datalist>
       <div class="ed">
         <details open><summary>${icon("mdi:cog")} Allgemein</summary><div class="body grid2">
           <label>Hauptplayer beim Start${this._sel('data-k="entity"', mainOpts, c.entity)}</label>
@@ -2716,6 +2778,7 @@ class MaFilterCardEditor extends HTMLElement {
     if (t.type === "recent") extra += `<label>Medientyp${this._sel(`data-t="${i}" data-k="media_type"`, [["", "Alben"], ["track", "Titel"], ["playlist", "Playlisten"], ["artist", "Interpreten"], ["radio", "Radio"]], t.media_type)}</label>`;
     if (!["queue", "playlist", "players"].includes(t.type)) extra += `<label>Sortierung${this._sel(`data-t="${i}" data-k="order_by"`, ED_ORDER, t.order_by)}</label>
       <label>Max. Anzahl<input type="number" min="1" data-t="${i}" data-n="limit" value="${esc(t.limit ?? "")}" placeholder="unbegrenzt"></label>`;
+    if (!["queue", "players"].includes(t.type)) extra += `<label>Suchbegriffe aus Helfer<input data-t="${i}" data-k="terms_entity" list="mafcTermEnts" autocomplete="off" value="${esc(t.terms_entity || "")}" placeholder="input_text.… / todo.…"></label>`;
     return `<div class="tabbox${open ? " open" : ""}">
       <div class="tabhead">
         <button class="ib" data-act="tab-toggle" data-t="${i}">${icon(open ? "mdi:chevron-down" : "mdi:chevron-right")}</button>

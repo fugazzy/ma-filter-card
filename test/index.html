@@ -76,6 +76,8 @@
       media_title: "Wish You Were Here", media_artist: "Pink Floyd", entity_picture: art(3, "♫") }),
     "media_player.hobby": player("media_player.hobby", "Hobbyraum", "idle"),
     "media_player.soundbar": player("media_player.soundbar", "Soundbar", "off"),
+    "input_text.musik_suchbegriffe": { entity_id: "input_text.musik_suchbegriffe", state: "Queen, Pink Floyd", last_updated: "1", attributes: { friendly_name: "Musik Suchbegriffe" } },
+    "todo.musik": { entity_id: "todo.musik", state: "2", attributes: { friendly_name: "Musik" } },
     "media_player.tv": { entity_id: "media_player.tv", state: "off", attributes: { friendly_name: "TV" } },
   };
   window.calls = [];
@@ -89,6 +91,7 @@
       if (msg.type !== "call_service") throw new Error("unsupported " + msg.type);
       const { domain, service, service_data: d, target } = msg;
       const key = domain + "." + service;
+      if (key === "todo.get_items") return { response: { [target.entity_id]: { items: ["Queen", "Titel 3"].map((x) => ({ summary: x, status: "needs_action" })) } } };
       if (key === "music_assistant.get_queue") return { response: { [target.entity_id]: { items: queue.length, current_index: 2 } } };
       if (key === "mass_queue.send_command" && !d.command.endsWith("/library_items") || d?.command === "music/genres/library_items") {
         const c = d.command, dd = d.data || {};
@@ -109,7 +112,7 @@
         window.favs = window.favs || new Set(["library://track/0", "library://track/4"]);
         if (type === "track") all.forEach((x) => { x.favorite = favs.has(x.uri); });
         if (d.data.favorite) all = all.filter((x) => x.favorite);
-        if (d.data.search) all = all.filter((x) => x.name.toLowerCase().includes(d.data.search.toLowerCase()));
+        if (d.data.search) all = all.filter((x) => [x.name, ...(x.artists || []).map((a) => a.name || a)].join(" ").toLowerCase().includes(d.data.search.toLowerCase()));
         if ((d.data.order_by || "").startsWith("timestamp_added_desc")) all.reverse();
         return { response: { response: all.slice(d.data.offset, d.data.offset + d.data.limit) } };
       }
@@ -155,6 +158,8 @@
       { type: "playlist", name: "70er", uri: "library://playlist/1" },
       { type: "recent" },
       { type: "played" },
+      { type: "tracks", name: "KI", terms_entity: "input_text.musik_suchbegriffe" },
+      { type: "albums", name: "KI-Todo", terms_entity: "todo.musik" },
       { type: "radio" },
       { type: "queue" },
     ],

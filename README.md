@@ -162,6 +162,47 @@ Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:
 
 Gemeinsame Optionen: `name`, `icon`, `filter`, `favorites` (Startzustand des Favoriten-Schalters), `show_favorites_toggle` (Standard `true`), `order_by` (z. B. `name`, `name_desc`, `timestamp_added_desc`, `last_played_desc`, `play_count_desc`, `year_desc`, `random`), `limit`, `max_scan`.
 
+### Suchbegriffe aus einem Helfer (z. B. per KI gefüllt)
+
+Mit `terms_entity` liest ein Tab seine Suchbegriffe aus einer Entität. Die Karte sucht jeden Begriff einzeln in der Bibliothek und zeigt alle Treffer zusammen; Music Assistant findet dabei auch Interpreten-Namen. Ein zusätzlicher `filter` gilt weiterhin. Ändert sich die Entität, lädt der Tab neu.
+
+| Entität | Woher die Begriffe kommen |
+|---|---|
+| `input_text`, `text`, `input_select`, `sensor` | Zustand, getrennt durch `,` `;` `\|` oder Zeilenumbruch; oder ein Attribut `terms` mit einer Liste |
+| `todo` | alle offenen Einträge der Liste (ohne 255-Zeichen-Grenze) |
+
+Optionen: `terms_entity`, `terms_limit` (Treffer pro Begriff, Standard 50).
+
+```yaml
+- type: tracks
+  name: KI-Mix
+  icon: mdi:creation
+  terms_entity: input_text.musik_suchbegriffe
+```
+
+Ein Skript, das den Helfer per KI füllt (HA 2025.8+ mit einer AI-Task-Entität):
+
+```yaml
+alias: Musik-Suchbegriffe per KI
+fields:
+  wunsch:
+    selector: { text: {} }
+sequence:
+  - action: ai_task.generate_data
+    data:
+      task_name: Musik Suchbegriffe
+      instructions: >-
+        Erzeuge höchstens 15 Suchbegriffe (bevorzugt Interpretennamen) für eine
+        Musikbibliothek zu diesem Wunsch: "{{ wunsch }}". Keine Erklärungen.
+      structure:
+        terms: { required: true, selector: { text: { multiple: true } } }
+    response_variable: ki
+  - action: input_text.set_value
+    target: { entity_id: input_text.musik_suchbegriffe }
+    data:
+      value: "{{ (ki.data.terms | join(', '))[:255] }}"
+```
+
 ## Filter
 
 Filter funktionieren in allen Tab-Typen außer `queue`. Du kannst sie als **Ausdruck** oder als **YAML-Struktur** schreiben.
