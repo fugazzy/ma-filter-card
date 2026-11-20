@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.12.0";
+const MAFC_VERSION = "0.12.1";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -2034,7 +2034,20 @@ class MusicAssistantFilterCard extends HTMLElement {
     }
     tiles.forEach((t) => { t.dataset.fbo = "1"; this._coverIo.observe(t); });
   }
-  async _coverFallback(item, tile) {
+  /* Cover lädt nicht: Bild entfernen und bei Alben/Playlisten das Cover eines Titels versuchen */
+  _imgErr(img) {
+    const tile = img.closest(".tile");
+    img.remove();
+    if (!tile || tile.dataset.fbDone) return;
+    tile.dataset.fbDone = "1";
+    const item = this._state(this._activeTab).items[+tile.dataset.i];
+    if (item && (item.media_type === "album" || item.media_type === "playlist") && item.uri) {
+      const bad = item.image;
+      item.image = null; item._img = null;
+      this._coverFallback(item, tile, bad);
+    }
+  }
+  async _coverFallback(item, tile, bad) {
     this._coverCache = this._coverCache || new Map();
     let p = this._coverCache.get(item.uri);
     if (!p) {
@@ -2046,7 +2059,7 @@ class MusicAssistantFilterCard extends HTMLElement {
             tr = await this._fetchChildren(item.media_type, item.uri).catch(() => []);
             if (item.media_type === "playlist") (this._plTracks = this._plTracks || new Map()).set(item.uri, tr);
           }
-          const t = tr.find((x) => this._image(x));
+          const t = tr.find((x) => this._image(x) && this._image(x) !== bad);
           return t ? this._image(t) : null;
         } finally { this._coverFree(); }
       })();
@@ -2056,7 +2069,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     if (!url || item.image) return;
     item.image = url;
     const art = tile.isConnected && tile.querySelector(".art");
-    if (art && !art.querySelector("img")) art.insertAdjacentHTML("afterbegin", `<img decoding="async" src="${esc(url)}" alt="" draggable="false" onerror="this.remove()">`);
+    if (art && !art.querySelector("img")) art.insertAdjacentHTML("afterbegin", `<img decoding="async" src="${esc(url)}" alt="" draggable="false" onerror="this.getRootNode().host?._imgErr?.(this)">`);
   }
   _coverSlot() {
     this._coverBusy = this._coverBusy || 0;
@@ -2076,7 +2089,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     const cls = it.media_type === "artist" ? " round" : it.media_type === "radio" ? " radio" : "";
     const fb = !img && (it.media_type === "album" || it.media_type === "playlist") && it.uri ? " data-fb" : "";
     return `<div class="tile${cls}" data-i="${idx}"${fb} title="${esc(it.name)}${sub ? " – " + esc(sub) : ""}">
-      <div class="art">${img ? `<img loading="lazy" decoding="async" src="${esc(img)}" alt="" draggable="false" onerror="this.remove()">` : ""}${icon(TYPE_ICON[it.media_type] || "mdi:music", "ph-ic")}
+      <div class="art">${img ? `<img loading="lazy" decoding="async" src="${esc(img)}" alt="" draggable="false" onerror="this.getRootNode().host?._imgErr?.(this)">` : ""}${icon(TYPE_ICON[it.media_type] || "mdi:music", "ph-ic")}
         ${it.favorite ? `<span class="badge">${icon("mdi:heart")}</span>` : ""}
       </div>
       <div class="t1">${esc(it.name)}</div>
@@ -2508,7 +2521,7 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .fav-toggle ha-icon { --mdc-icon-size:20px; }
 .fav-toggle.on { background: color-mix(in srgb, var(--error-color, #e91e63) 16%, transparent); border-color: var(--error-color, #e91e63); color: var(--error-color, #e91e63); }
 .compact .fav-toggle span { display:none; } .compact .fav-toggle { padding: 0 10px; }
-.compact 
+
 .content { flex:1; overflow-y:auto; overflow-x:hidden; padding: 4px 12px 16px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr)); gap: 14px 12px; }
 .tile { cursor:pointer; min-width:0; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color: transparent;

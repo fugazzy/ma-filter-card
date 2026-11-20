@@ -48,7 +48,7 @@
     return {
       item_id: String(i), provider: "library", name, version: "", uri: `library://${type}/${i}`, media_type: type,
       favorite: i % 4 === 0, year: 1970 + (i % 50), album_type: type === "album" ? (i % 5 ? "album" : "single") : undefined,
-      metadata: { popularity: (i * 37) % 101, images: i % 9 === 8 ? [] : [{ type: "thumb", path: art(i, type[0].toUpperCase() + (i + 1)), remotely_accessible: true }] },
+      metadata: { popularity: (i * 37) % 101, images: i % 9 === 8 ? [] : [{ type: "thumb", path: i % 9 === 7 ? "http://127.0.0.1:9/broken.jpg" : art(i, type[0].toUpperCase() + (i + 1)), remotely_accessible: true }] },
       artists: type === "album" || type === "track" ? [{ name: ARTISTS[a] }] : undefined,
       album: type === "track" ? { name: `Album ${(i % 40) + 1}` } : undefined,
       owner: type === "playlist" ? "me" : undefined, duration: 180 + (i % 120),
