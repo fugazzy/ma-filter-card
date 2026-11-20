@@ -171,7 +171,28 @@ Mit `terms_entity` liest ein Tab seine Suchbegriffe aus einer Entität. Die Kart
 | `input_text`, `text`, `input_select`, `sensor` | Zustand, getrennt durch `,` `;` `\|` oder Zeilenumbruch; oder ein Attribut `terms` mit einer Liste |
 | `todo` | alle offenen Einträge der Liste (ohne 255-Zeichen-Grenze) |
 
-Optionen: `terms_entity`, `terms_limit` (Treffer pro Begriff, Standard 50).
+Optionen:
+
+| Option | Bedeutung |
+|---|---|
+| `terms_entity` | Entität mit den Suchbegriffen |
+| `terms_field` | `artist`: Begriffe müssen im Interpreten stehen (sonst Name, Interpret oder Album) |
+| `terms_limit` | Treffer pro Begriff (Standard 50) |
+| `terms_share` | Playlisten: Anteil der Titel von passenden Interpreten, ab dem eine Playlist passt (Standard `0.5`); ein Begriff im Playlist-Namen genügt immer |
+| `switch_types` | Umschalter in der Werkzeugleiste, z. B. `[album, track, playlist]` |
+
+Beispiel: ein Tab „Kölsch“, der eine bearbeitbare To-do-Liste mit Interpreten nutzt und zwischen Alben, Titeln und Playlisten umschaltet:
+
+```yaml
+- type: albums
+  name: Kölsch
+  icon: mdi:glass-mug-variant
+  terms_entity: todo.kolsche_interpreten
+  terms_field: artist
+  switch_types: [album, track, playlist]
+```
+
+Abgehakte Einträge der To-do-Liste zählen nicht; so lässt sich ein Interpret vorübergehend ausschließen.
 
 ```yaml
 - type: tracks
