@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.11.1";
+const MAFC_VERSION = "0.12.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -2015,6 +2015,57 @@ class MusicAssistantFilterCard extends HTMLElement {
     const frag = document.createElement("template");
     frag.innerHTML = items.map((it, k) => this._tileHtml(it, start + k)).join("");
     grid.appendChild(frag.content);
+    this._observeCovers(grid);
+  }
+
+  /* Alben/Playlisten ohne Cover: sobald die Kachel sichtbar wird, das Cover des ersten Titels mit Bild nehmen */
+  _observeCovers(grid) {
+    const tiles = grid.querySelectorAll(".tile[data-fb]:not([data-fbo])");
+    if (!tiles.length) return;
+    if (!this._coverIo || this._coverRoot !== this.$("content")) {
+      this._coverIo?.disconnect();
+      this._coverRoot = this.$("content");
+      this._coverIo = new IntersectionObserver((ents) => ents.forEach((e) => {
+        if (!e.isIntersecting) return;
+        this._coverIo.unobserve(e.target);
+        const item = this._state(this._activeTab).items[+e.target.dataset.i];
+        if (item) this._coverFallback(item, e.target);
+      }), { root: this._coverRoot, rootMargin: "300px" });
+    }
+    tiles.forEach((t) => { t.dataset.fbo = "1"; this._coverIo.observe(t); });
+  }
+  async _coverFallback(item, tile) {
+    this._coverCache = this._coverCache || new Map();
+    let p = this._coverCache.get(item.uri);
+    if (!p) {
+      p = (async () => {
+        await this._coverSlot();
+        try {
+          let tr = item.media_type === "playlist" ? this._plTracks?.get(item.uri) : null;
+          if (!tr) {
+            tr = await this._fetchChildren(item.media_type, item.uri).catch(() => []);
+            if (item.media_type === "playlist") (this._plTracks = this._plTracks || new Map()).set(item.uri, tr);
+          }
+          const t = tr.find((x) => this._image(x));
+          return t ? this._image(t) : null;
+        } finally { this._coverFree(); }
+      })();
+      this._coverCache.set(item.uri, p);
+    }
+    const url = await p;
+    if (!url || item.image) return;
+    item.image = url;
+    const art = tile.isConnected && tile.querySelector(".art");
+    if (art && !art.querySelector("img")) art.insertAdjacentHTML("afterbegin", `<img decoding="async" src="${esc(url)}" alt="" draggable="false" onerror="this.remove()">`);
+  }
+  _coverSlot() {
+    this._coverBusy = this._coverBusy || 0;
+    if (this._coverBusy < 3) { this._coverBusy++; return Promise.resolve(); }
+    return new Promise((r) => (this._coverWait = this._coverWait || []).push(r));
+  }
+  _coverFree() {
+    const next = this._coverWait?.shift();
+    if (next) next(); else this._coverBusy--;
   }
 
   _tileHtml(it, idx) {
@@ -2023,7 +2074,8 @@ class MusicAssistantFilterCard extends HTMLElement {
       : it.media_type === "playlist" ? (it.owner && it.owner !== "me" ? it.owner : "")
       : it.media_type === "artist" ? "" : "";
     const cls = it.media_type === "artist" ? " round" : it.media_type === "radio" ? " radio" : "";
-    return `<div class="tile${cls}" data-i="${idx}" title="${esc(it.name)}${sub ? " – " + esc(sub) : ""}">
+    const fb = !img && (it.media_type === "album" || it.media_type === "playlist") && it.uri ? " data-fb" : "";
+    return `<div class="tile${cls}" data-i="${idx}"${fb} title="${esc(it.name)}${sub ? " – " + esc(sub) : ""}">
       <div class="art">${img ? `<img loading="lazy" decoding="async" src="${esc(img)}" alt="" draggable="false" onerror="this.remove()">` : ""}${icon(TYPE_ICON[it.media_type] || "mdi:music", "ph-ic")}
         ${it.favorite ? `<span class="badge">${icon("mdi:heart")}</span>` : ""}
       </div>
