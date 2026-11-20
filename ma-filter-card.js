@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.7.8";
+const MAFC_VERSION = "0.8.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -80,7 +80,7 @@ const MINI = 72; // Größe der eingeklappten Sidebar (px)
 
 const DEFAULT_TABS = [
   { type: "playlists" }, { type: "albums" }, { type: "tracks" },
-  { type: "recent" }, { type: "radio" }, { type: "queue" },
+  { type: "recent" }, { type: "radio" },
 ];
 
 /* --------------------------------------------------------------- helpers */
@@ -456,7 +456,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._save();
     this._lastSig = "";
     this._onHass();
-    if (this._config.tabs[this._activeTab]?.type === "queue") this._loadQueue(true);
+    if (this._isQueue()) this._loadQueue(true);
   }
 
   /* ---------------- service plumbing ---------------- */
@@ -617,7 +617,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       await this._svc("music_assistant", "play_media", data, { entity_id: main });
       const label = { replace: "▶", play: "▶", next: "⤵", add: "+", replace_next: "⤵" }[enqueue] || "▶";
       this._toast(`${label} ${item.name}`);
-      if (this._config.tabs[this._activeTab]?.type === "queue") setTimeout(() => this._loadQueue(true), 800);
+      if (this._isQueue()) setTimeout(() => this._loadQueue(true), 800);
       setTimeout(() => this._updateQueueBadge(), 1200);
     } catch (e) { this._toast(`${this._t("error")}: ${e.message || e}`, true); }
   }
@@ -862,6 +862,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   _openOverview() {
     // Erneuter Tipp bei offener Ansicht: zurück zum vorherigen Tab
     if (this._pv || (this.$("ovwGrid") && this._config.tabs[this._activeTab]?.type !== "players")) { this._showTab(this._activeTab); return; }
+    this._vq = false;
     const ti = this._config.tabs.findIndex((t) => t.type === "players");
     if (ti >= 0 && this._activeTab === ti) {
       const back = this._prevTab != null && this._prevTab !== ti && this._config.tabs[this._prevTab] ? this._prevTab : ti === 0 ? 1 : 0;
@@ -870,7 +871,7 @@ class MusicAssistantFilterCard extends HTMLElement {
     }
     if (ti >= 0) { this._showTab(ti); return; }
     if (this._tabState[this._activeTab] && !this._pv) this._tabState[this._activeTab].scroll = this.$("content").scrollTop;
-    this._pv = true;
+    this._pv = true; this._vq = false;
     this.shadowRoot.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
     this._renderToolbar();
     this._showPlayers();
@@ -879,8 +880,28 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   // „Alle Player“-Buttons in der Auswahlfarbe der HA-Seitenleiste, solange die Ansicht aktiv ist
   _markOv() {
-    const on = !!this._pv || this._config.tabs[this._activeTab]?.type === "players";
-    this.shadowRoot.querySelectorAll(".ov-btn, .ov-head, .mini-ov").forEach((b) => b.classList.toggle("active", on));
+    const on = !!this._pv || (!this._vq && this._config.tabs[this._activeTab]?.type === "players");
+    const q = this._isQueue();
+    this.shadowRoot.querySelectorAll(".p-nav").forEach((b) => b.classList.toggle("active", on));
+    this.shadowRoot.querySelectorAll(".q-nav").forEach((b) => b.classList.toggle("active", q));
+  }
+
+  // Warteschlange: als Ansicht im Hauptbereich (Button in der Sidebar) oder als Tab (type: queue)
+  _isQueue() {
+    if (this._vq) return true;
+    if (this._pv) return false;
+    return this._config.tabs[this._activeTab]?.type === "queue";
+  }
+
+  _openQueue() {
+    if (this._vq) { this._showTab(this._activeTab); return; }
+    if (this._tabState[this._activeTab] && !this._pv && !this._isQueue()) this._tabState[this._activeTab].scroll = this.$("content").scrollTop;
+    this._pv = false; this._vq = true;
+    this.shadowRoot.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+    this._markOv();
+    this._renderToolbar();
+    this._loadQueue(true);
+    if (!this._ui.pinned && !this._ui.collapsed) this._setCollapsed(true);
   }
 
   _showPlayers() {
@@ -1023,7 +1044,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   _build() {
     if (!this._hass || !this._config) return;
     this._built = true;
-    this._lastSig = ""; this._ovSig = null; this._pv = false; // neues DOM: alles neu zeichnen
+    this._lastSig = ""; this._ovSig = null; this._pv = false; this._vq = false; // neues DOM: alles neu zeichnen
     const root = this.shadowRoot;
     // Ohne Kartenhintergrund kein <ha-card>: Themes/UIX/card-mod können ha-card sonst einen Hintergrund aufzwingen
     const tag = this._config.card_background ? "ha-card" : "div";
@@ -1164,7 +1185,8 @@ class MusicAssistantFilterCard extends HTMLElement {
     this.$("sbFull").innerHTML = `
       <div class="sb-head">
         <button class="select-wrap" id="playerBtn" aria-label="${t("main_player")}">${icon("mdi:speaker", "sel-ic")}<span class="sel-name" id="playerName"></span>${icon("mdi:chevron-down", "sel-chev")}</button>
-        <button class="ib ov-head" data-cmd="overview" title="${t("all_players")}">${icon("mdi:speaker-multiple")}</button>
+        <button class="ib ov-head q-nav" data-cmd="queue" title="${t("queue")}">${icon("mdi:playlist-music")}<span class="qdot" hidden></span></button>
+        <button class="ib ov-head p-nav" data-cmd="overview" title="${t("all_players")}">${icon("mdi:speaker-multiple")}</button>
         ${collapsible ? `<button class="ib" id="pinBtn"></button><button class="ib" id="colBtn" title="${t("collapse")}"></button>` : ""}
       </div>
       <div class="cover-wrap"><div class="cover" id="cover" title="${t("song_info")}"></div></div>
@@ -1193,7 +1215,8 @@ class MusicAssistantFilterCard extends HTMLElement {
         <button class="ib sm" data-cmd="volup" title="${t("vol_up")}">${icon("mdi:volume-plus")}</button>
         <span class="volv" id="volv"></span>
       </div>
-      <button class="ov-btn" data-cmd="overview">${icon("mdi:speaker-multiple")}<span>${t("all_players")}</span>${icon("mdi:chevron-right", "ov-chev")}</button>`;
+      <button class="ov-btn q-nav" data-cmd="queue">${icon("mdi:playlist-music")}<span>${t("queue")}</span><span class="qcount" hidden></span>${icon("mdi:chevron-right", "ov-chev")}</button>
+      <button class="ov-btn p-nav" data-cmd="overview">${icon("mdi:speaker-multiple")}<span>${t("all_players")}</span>${icon("mdi:chevron-right", "ov-chev")}</button>`;
     this.$("sbMini").innerHTML = `
       <div class="mini-cover" id="miniCover"></div>
       <div class="mini-info"><div class="title" id="miniTitle"></div><div class="artist" id="miniArtist"></div></div>
@@ -1202,7 +1225,8 @@ class MusicAssistantFilterCard extends HTMLElement {
         <button class="ib" data-cmd="playpause" id="miniPp">${icon("mdi:play")}</button>
         <button class="ib mini-next" data-cmd="next">${icon("mdi:skip-next")}</button>
       </div>
-      <button class="ib mini-ov" data-cmd="overview" title="${t("all_players")}">${icon("mdi:speaker-multiple")}</button>
+      <button class="ib mini-ov q-nav" data-cmd="queue" title="${t("queue")}">${icon("mdi:playlist-music")}<span class="qdot" hidden></span></button>
+      <button class="ib mini-ov p-nav" data-cmd="overview" title="${t("all_players")}">${icon("mdi:speaker-multiple")}</button>
       ${collapsible ? `<button class="ib mini-exp" id="expBtn" title="${t("expand")}"></button>` : ""}`;
 
     this._lastPic = undefined; // neues DOM: Cover neu setzen
@@ -1240,6 +1264,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   async _cmd(cmd) {
     if (cmd === "like") { if (this._now) this._toggleFavorite(this._now); return; }
     if (cmd === "overview") { this._openOverview(); return; }
+    if (cmd === "queue") { this._openQueue(); return; }
     const main = this._main();
     if (!main) return;
     const s = this._hass.states[main];
@@ -1294,10 +1319,10 @@ class MusicAssistantFilterCard extends HTMLElement {
     this._renderGroupBar();
     if (prevTitle !== this._lastTitle) this._updateQueueBadge();
     if (this.$("ovwGrid")) this._renderOverview();
-    if (prevTitle !== undefined && prevTitle !== this._lastTitle && this._config.tabs[this._activeTab]?.type === "queue") {
+    if (prevTitle !== undefined && prevTitle !== this._lastTitle && this._isQueue()) {
       clearTimeout(this._qT);
       this._qT = setTimeout(() => this._loadQueue(true), 600);
-    } else if (this._config.tabs[this._activeTab]?.type === "queue") {
+    } else if (this._isQueue()) {
       this._markQueueCurrent();
     }
   }
@@ -1492,7 +1517,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   _updateQueueBadge() {
     const qi = this._config.tabs.findIndex((t) => t.type === "queue");
     const main = this._main();
-    if (qi < 0 || !main) return;
+    if (!main) return;
     clearTimeout(this._qbT);
     this._qbT = setTimeout(async () => {
       let n = 0;
@@ -1501,10 +1526,14 @@ class MusicAssistantFilterCard extends HTMLElement {
         const q = r?.[main] || Object.values(r || {})[0];
         if (q) n = Math.max(0, (q.items || 0) - (q.current_index == null ? 0 : q.current_index + 1));
       } catch (e) { return; }
-      const tab = this.shadowRoot.querySelector(`.tab[data-tab="${qi}"]`);
+      const txt = n > 99 ? "99+" : n ? String(n) : "";
+      const title = n ? `${n} ${this._t("queue_upcoming")}` : this._t("queue");
+      this.shadowRoot.querySelectorAll(".qcount, .qdot").forEach((el) => { el.textContent = txt; el.hidden = !n; });
+      this.shadowRoot.querySelectorAll(".q-nav").forEach((b) => { b.title = title; });
+      const tab = qi >= 0 && this.shadowRoot.querySelector(`.tab[data-tab="${qi}"]`);
       if (!tab) return;
       tab.querySelector(".qbadge")?.remove();
-      if (n > 0) tab.insertAdjacentHTML("beforeend", `<span class="qbadge" title="${n} ${esc(this._t("queue_upcoming"))}">${n > 99 ? "99+" : n}</span>`);
+      if (n > 0) tab.insertAdjacentHTML("beforeend", `<span class="qbadge" title="${esc(title)}">${txt}</span>`);
     }, 400);
   }
 
@@ -1628,7 +1657,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       const b = e.target.closest("[data-tab]");
       if (!b) return;
       const i = +b.dataset.tab;
-      if (this._pv) { this._showTab(i); return; }
+      if (this._pv || this._vq) { this._showTab(i); return; }
       if (i === this._activeTab) {
         const st = this._tabState[i];
         if (st?.stack?.length) { st.stack = []; this._showTab(i, true); return; }
@@ -1652,8 +1681,8 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   _showTab(i, force = false) {
     const prev = this._activeTab;
-    if (this._tabState[prev] && !this._pv) this._tabState[prev].scroll = this.$("content").scrollTop;
-    this._pv = false;
+    if (this._tabState[prev] && !this._pv && !this._vq) this._tabState[prev].scroll = this.$("content").scrollTop;
+    this._pv = false; this._vq = false;
     if (prev !== i) this._prevTab = prev;
     this._activeTab = i;
     this._markOv();
@@ -1692,12 +1721,12 @@ class MusicAssistantFilterCard extends HTMLElement {
     const tab = this._config.tabs[i];
     const st = this._state(i);
     const bar = this.$("toolbar");
-    if (this._pv || tab.type === "players") {
+    if (this._pv || (!this._vq && tab.type === "players")) {
       bar.innerHTML = `<div class="tb-title">${icon("mdi:speaker-multiple")}<span>${esc(this._t("all_players"))}</span></div>`;
       bar.onclick = null;
       return;
     }
-    if (tab.type === "queue") {
+    if (this._isQueue()) {
       bar.innerHTML = `<div class="tb-title">${icon("mdi:playlist-music")}<span>${esc(this._pname(this._main() || ""))}</span></div>
         <span class="spacer"></span>
         <button class="ib" data-tb="refresh" title="${esc(this._t("refresh"))}">${icon("mdi:refresh")}</button>
@@ -1721,7 +1750,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       if (!b) return;
       switch (b.dataset.tb) {
         case "fav": st.favOnly = !st.favOnly; this._renderToolbar(); this._resetTab(i); break;
-        case "refresh": tab.type === "queue" ? this._loadQueue(true) : this._resetTab(i); break;
+        case "refresh": this._isQueue() ? this._loadQueue(true) : this._resetTab(i); break;
         case "back": st.stack.pop(); this._renderToolbar(); this._resetTab(i); break;
         case "pl-replace": case "pl-next": case "pl-add": this._playList(i, b.dataset.tb.slice(3)); break;
         case "clear": this._dialog({
@@ -1871,7 +1900,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   }
 
   _refreshImages() {
-    if (this._config.tabs[this._activeTab]?.type !== "queue" && this.$("grid")) {
+    if (!this._isQueue() && this.$("grid")) {
       const st = this._state(this._activeTab);
       this.$("grid").innerHTML = "";
       this._appendTiles(st.items, 0);
@@ -1914,7 +1943,7 @@ class MusicAssistantFilterCard extends HTMLElement {
 
   async _loadQueue(force) {
     const i = this._activeTab;
-    if (this._config.tabs[i]?.type !== "queue" || this._pv) return;
+    if (!this._isQueue()) return;
     const content = this.$("content");
     const e = await this._resolveEntries();
     if (!e.mq) {
@@ -1935,7 +1964,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         return;
       }
     }
-    if (this._config.tabs[this._activeTab]?.type !== "queue") return;
+    if (!this._isQueue()) return;
     const items = this._queue.items;
     if (!items.length) {
       content.innerHTML = `<div class="status"><div class="empty">${icon("mdi:playlist-remove")}<span>${esc(this._t("queue_empty"))}</span></div></div>`;
@@ -2201,7 +2230,16 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
   background: var(--sidebar-selected-icon-color, var(--primary-color)); opacity:.12; }
 .ov-btn.active ha-icon, .ov-head.active ha-icon, .mini-ov.active ha-icon { color: var(--sidebar-selected-icon-color, var(--primary-color)); }
 .ov-btn.active > *, .ov-head.active > *, .mini-ov.active > * { position:relative; }
-.ov-btn > span { flex:1; text-align:left; } .ov-chev { --mdc-icon-size:18px; color: var(--secondary-text-color); }
+.ov-btn > span { flex:1; text-align:left; } .ov-btn > span.qcount { flex:none; }
+.ov-btn + .ov-btn { margin-top:0; }
+.side .mini-ov + .mini-ov { margin-top:0; }
+.qcount { min-width:20px; height:20px; padding:0 6px; border-radius:10px; font-size:12px; font-weight:600; line-height:20px; text-align:center;
+  background: rgba(127,127,127,.25); }
+.qcount[hidden], .qdot[hidden] { display:none; }
+.mini-ov, .ov-head { position:relative; }
+.mini-ov.active > .qdot, .ov-head.active > .qdot { position:absolute; }
+.qdot { position:absolute; top:2px; right:2px; min-width:16px; height:16px; padding:0 4px; border-radius:8px; font-size:10px; font-weight:700; line-height:16px;
+  text-align:center; background: var(--sidebar-selected-icon-color, var(--primary-color)); color: var(--text-primary-color, #fff); } .ov-chev { --mdc-icon-size:18px; color: var(--secondary-text-color); }
 .stack .ov-btn { display:none; } .side .ov-head { display:none; }
 .ovw-grid { padding-top:8px; display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:14px; }
 .pcard { display:grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art info" "ctl ctl" "vol vol"; gap:6px 14px;

@@ -26,7 +26,7 @@ Lovelace-Karte für Home Assistant, die Music Assistant steuert. Sie funktionier
 - **Hauptplayer-Auswahl** als Liste mit dem, was gerade läuft.
 - **Alle gruppieren** und **Alle lösen** in der Gruppierleiste.
 - **Alle Player** (Button unten in der Sidebar, eingeklappt als Symbol): Ansicht im Hauptbereich mit allen aktivierten Playern, jeweils mit Cover, Titel, Zurück/Play/Weiter, Lautstärke, Gruppieren und „Als Hauptplayer“. Ein Tipp auf einen Tab kehrt zurück. Als fester Tab: `type: players`.
-- Am Warteschlangen-Tab zeigt eine kleine Zahl, wie viele Titel noch folgen.
+- **Warteschlange in der Sidebar:** Der Button „Warteschlange“ (eingeklappt als Symbol) zeigt sie im Hauptbereich, mit der Zahl der folgenden Titel. Ein erneuter Tipp kehrt zurück. Ein eigener Tab (`type: queue`) ist weiter möglich, aber nicht mehr nötig.
 - Standardmäßig transparenter Hintergrund, Tab-Stil und Pin-Farbe wie in der HA-Seitenleiste.
 
 ## Voraussetzungen
