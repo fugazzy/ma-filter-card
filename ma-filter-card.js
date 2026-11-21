@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.12.1";
+const MAFC_VERSION = "0.12.2";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -1000,7 +1000,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         <div class="pc-art">${pic ? `<img src="${esc(pic)}" alt="" draggable="false" onerror="this.remove()">` : ""}${icon("mdi:music", "ph-ic")}</div>
         <div class="pc-body">
           <div class="pc-name">${st.state === "playing" ? `<span class="eq"><i></i><i></i><i></i></span>` : icon(leaderOf ? "mdi:speaker-multiple" : "mdi:speaker")}<span>${esc(this._pname(e))}</span>
-            ${isMain ? `<span class="pc-tag">${t("main_player")}</span>` : joined ? `<span class="pc-tag">${icon("mdi:link-variant")}</span>` : ""}</div>
+            ${isMain ? `<span class="pc-tag" title="${t("main_player")}">${icon("mdi:star")}<span>${t("main_player")}</span></span>` : joined ? `<span class="pc-tag">${icon("mdi:link-variant")}</span>` : ""}</div>
           <div class="pc-t">${esc(active ? a.media_title || "" : this._statusText(e))}</div>
           <div class="pc-a">${esc(active ? [a.media_artist, a.media_album_name].filter(Boolean).join(" · ") : "")}</div>
         </div>
@@ -2440,16 +2440,17 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
   text-align:center; background: var(--sidebar-selected-icon-color, var(--primary-color)); color: var(--text-primary-color, #fff); } .ov-chev { --mdc-icon-size:18px; color: var(--secondary-text-color); }
 .stack .ov-btn { display:none; } .side .ov-head { display:none; }
 .ovw-grid { padding-top:8px; display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:14px; }
-.pcard { display:grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art info" "ctl ctl" "vol vol"; gap:6px 14px;
+.pcard { display:grid; grid-template-columns: 96px minmax(0, 1fr); grid-template-areas: "art info" "ctl ctl" "vol vol"; gap:6px 14px;
   padding:12px; border-radius:16px; background: rgba(127,127,127,.08); border:1.5px solid transparent; min-width:0; }
-.pc-art { grid-area: art; } .pc-body { grid-area: info; justify-content:center; } .pc-ctl { grid-area: ctl; } .pc-vol { grid-area: vol; }
+.pc-art { grid-area: art; } .pc-body { grid-area: info; justify-content:center; } .pcard .pc-ctl { grid-area: ctl; } .pcard .pc-vol { grid-area: vol; }
 .pcard.is-main { border-color: var(--sidebar-selected-icon-color, var(--mafc-accent)); }
 .pc-art { position:relative; width:96px; height:96px; flex:none; border-radius:12px; overflow:hidden; background: rgba(127,127,127,.15);
   display:flex; align-items:center; justify-content:center; color: var(--secondary-text-color); }
 .pc-art img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; }
 .pc-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
 .pc-name { display:flex; align-items:center; gap:6px; font-weight:600; font-size:15px; min-width:0; }
-.pc-name > span:not(.eq):not(.pc-tag) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pc-name > span:not(.eq):not(.pc-tag) { overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; white-space:normal; overflow-wrap:anywhere; line-height:1.25; }
+.pc-tag > span { margin-left:3px; }
 .pc-name ha-icon { --mdc-icon-size:18px; color: var(--secondary-text-color); }
 .pcard.playing .pc-name .eq { color: var(--accent-color, var(--mafc-accent)); }
 .pc-tag { flex:none; font-size:11px; font-weight:600; padding:1px 7px; border-radius:9px; color: var(--sidebar-selected-icon-color, var(--mafc-accent));
@@ -2463,8 +2464,10 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .pc-vol { margin-top:-6px; }
 @media (max-width: 520px) {
   .pcard { gap:10px; padding:8px; }
+  .pcard { grid-template-columns: 64px minmax(0, 1fr); }
   .pc-art { width:64px; height:64px; border-radius:10px; }
   .pc-vol .volv { display:none; }
+  .pc-tag { padding:1px 5px; } .pc-tag > span { display:none; }
 }
 .side .mini-exp { margin: 0; }
 .stack .sb-mini::after { content:""; position:absolute; left:0; bottom:0; height:3px; width: var(--pct, 0); background: var(--mafc-accent); transition: width 1s linear; }
