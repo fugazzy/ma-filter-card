@@ -157,8 +157,6 @@ Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:
 | `recent` | Neu hinzugefügt | `media_type: album \| track \| playlist \| artist \| radio` |
 | `played` | Zuletzt gespielt | `media_type` (Standard `track`), `limit` (Standard 100). Braucht mass_queue |
 | `radio` | Radiosender | |
-| `players` | Alle Player | Übersicht aller Player mit Miniplayern |
-| `queue` | Warteschlange bearbeiten | |
 
 Gemeinsame Optionen: `name`, `icon`, `filter`, `favorites` (Startzustand des Favoriten-Schalters), `show_favorites_toggle` (Standard `true`), `order_by` (z. B. `name`, `name_desc`, `timestamp_added_desc`, `last_played_desc`, `play_count_desc`, `year_desc`, `random`), `limit`, `max_scan`.
 
@@ -171,6 +169,8 @@ Im Filter gibt es den Operator **„in Liste (Helfer)“** (`@`). Die Bedingung 
   name: Kölsch
   filter: artist@todo.kolsche_interpreten
 ```
+
+In Tabs mit Playlisten, Alben oder Titeln, die einen Filter haben, gibt es in der Werkzeugleiste einen Umschalter **Playlisten / Alben / Titel**. Der Filter gilt dann für die gewählte Art; abschalten mit `type_switch: false`.
 
 Er lässt sich wie jede andere Bedingung kombinieren, z. B. `artist@todo.kolsche_interpreten and year>=1990`. Ändert sich die Liste, lädt der Tab neu.
 
