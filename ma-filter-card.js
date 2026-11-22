@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.12.2";
+const MAFC_VERSION = "0.13.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -520,6 +520,7 @@ class MusicAssistantFilterCard extends HTMLElement {
         } catch (err) { return null; }
       };
       if (!e.ma) e.ma = await find("music_assistant");
+      if (!e.ma) e.ma = this._entryFromDevices(); // Nicht-Admins dürfen config_entries/get nicht
       if (!e.mq && this._config.use_mass_queue !== false) e.mq = await find("mass_queue");
       if (this._config.use_mass_queue === false) e.mq = null;
       this._entries = e;
@@ -528,6 +529,17 @@ class MusicAssistantFilterCard extends HTMLElement {
       return e;
     })();
     return this._entriesPromise;
+  }
+
+  _entryFromDevices() {
+    const h = this._hass;
+    for (const s of Object.values(h.states)) {
+      if (!this._isMaPlayer(s)) continue;
+      const dev = h.devices?.[h.entities?.[s.entity_id]?.device_id];
+      const id = dev?.primary_config_entry || dev?.config_entries?.[0];
+      if (id) return id;
+    }
+    return null;
   }
 
   async _learnMaBase(ma) {
@@ -2680,7 +2692,26 @@ class MaFilterCardEditor extends HTMLElement {
     this._bound = false;
   }
 
-  set hass(h) { const first = !this._hass; this._hass = h; if (first && this._config) this._render(); }
+  set hass(h) { const first = !this._hass; this._hass = h; if (first && this._config) { this._render(); this._autoFill(); } }
+
+  /* Technische Werte selbst eintragen, damit niemand sie kennen muss: Integrations-Einträge
+   * (Nicht-Admins dürfen sie nicht abfragen) und eine eigene Karten-ID für die Speicherung im Browser. */
+  async _autoFill() {
+    if (this._autoDone || !this._hass || !this._config) return;
+    this._autoDone = true;
+    const c = this._config;
+    let changed = false;
+    if (!c.id) { c.id = "mafc-" + Math.random().toString(36).slice(2, 8); changed = true; }
+    if (this._hass.user?.is_admin !== false) {
+      const find = async (domain) => {
+        try { return (await this._hass.callWS({ type: "config_entries/get", domain }) || []).find((x) => x.state === "loaded")?.entry_id || null; }
+        catch (e) { return null; }
+      };
+      if (!c.config_entry_id) { const id = await find("music_assistant"); if (id) { c.config_entry_id = id; changed = true; } }
+      if (!c.mass_queue_entry_id && c.use_mass_queue !== false) { const id = await find("mass_queue"); if (id) { c.mass_queue_entry_id = id; changed = true; } }
+    }
+    if (changed && this._config === c) this._emit();
+  }
 
   setConfig(config) {
     const json = JSON.stringify(config || {});
@@ -2690,6 +2721,7 @@ class MaFilterCardEditor extends HTMLElement {
     this._config.tabs.forEach((t, i) => this._syncModel(i));
     this._models.length = this._sers.length = this._errs.length = this._config.tabs.length;
     this._render();
+    this._autoFill();
   }
 
   _syncModel(i) {
@@ -2764,7 +2796,8 @@ class MaFilterCardEditor extends HTMLElement {
           <label>Alben/Playlisten antippen${this._sel('data-k="collection_tap"', [["", "Menü öffnen"], ["open", "Öffnen"], ["play", "Abspielen"]], c.collection_tap)}</label>
           <label>Wenn schon etwas läuft${this._sel('data-k="when_playing"', [["", "Nachfragen"], ["replace", "Ersetzen"], ["next", "Als nächstes"], ["add", "Anhängen"], ["play", "Sofort spielen"]], c.when_playing)}</label>
           <label>Sidebar-Position${this._sel('data-sb="position"', [["", "Automatisch"], ["left", "Links"], ["right", "Rechts"], ["top", "Oben"], ["bottom", "Unten"]], sb.position)}</label>
-          <label>Kachelgröße${this._sel('data-k="tile_size"', [["", "Automatisch"], ["small", "Klein"], ["medium", "Mittel"], ["large", "Groß"]], c.tile_size)}</label>
+          <label>Kachelgröße${this._sel('data-k="tile_size"', [["", "Automatisch"], ["small", "Klein"], ["medium", "Mittel"], ["large", "Groß"], ["xlarge", "Sehr groß"]], c.tile_size)}</label>
+          <label>Höhe (z. B. 700 oder 80vh)<input data-k="height" value="${esc(c.height ?? "")}" placeholder="automatisch"></label>
           ${!sb.position || sb.position === "auto" ? `
           <label>Querformat${this._sel('data-sb="position_landscape"', [["", "Links"], ["right", "Rechts"]], sb.position_landscape)}</label>
           <label>Hochformat${this._sel('data-sb="position_portrait"', [["", "Oben"], ["bottom", "Unten"]], sb.position_portrait)}</label>` : ""}
@@ -2785,14 +2818,6 @@ class MaFilterCardEditor extends HTMLElement {
           <div class="row">${this._sel('id="newType"', ED_TYPES, "albums")}<button class="btn primary" data-act="tab-add">${icon("mdi:plus")} Tab hinzufügen</button></div>
         </div></details>
 
-        <details><summary>${icon("mdi:tune")} Erweitert</summary><div class="body grid2">
-          <label>Music-Assistant-Eintrag (config_entry_id)<input data-k="config_entry_id" value="${esc(c.config_entry_id || "")}" placeholder="automatisch"></label>
-          <label>mass_queue-Eintrag<input data-k="mass_queue_entry_id" value="${esc(c.mass_queue_entry_id || "")}" placeholder="automatisch"></label>
-          <label>MA-Server-URL (Cover)<input data-k="ma_url" value="${esc(c.ma_url || "")}" placeholder="automatisch"></label>
-          <label>Karten-ID (Speicherung)<input data-k="id" value="${esc(c.id || "")}" placeholder="default"></label>
-          <label>Höhe (z. B. 700 oder 80vh)<input data-k="height" value="${esc(c.height ?? "")}" placeholder="automatisch"></label>
-          <label>Max. durchsuchte Einträge<input type="number" data-n="max_scan" value="${esc(c.max_scan ?? "")}" placeholder="3000"></label>
-        </div></details>
         <div class="muted ver">Music Assistant Filtercard ${MAFC_VERSION}</div>
       </div>`;
     this._sugEl = null;

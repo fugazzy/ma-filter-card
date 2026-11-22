@@ -107,7 +107,7 @@ Ab Version 0.2.0 lässt sich die Karte komplett über *Karte bearbeiten* einrich
   - **NICHT** verneint eine einzelne Bedingung oder eine ganze Gruppe.
   - **×** entfernt die Bedingung oder Gruppe.
   - Darunter steht der erzeugte **Ausdruck**. Er lässt sich auch direkt bearbeiten, und der Baukasten übernimmt die Änderung. Ist ein Ausdruck fehlerhaft, zeigt der Editor die Fehlermeldung an.
-- **Erweitert:** Eintrags-IDs, MA-Server-URL, Karten-ID, Höhe, maximale Anzahl durchsuchter Einträge.
+- **Automatisch:** Beim Einrichten trägt der Editor die Music-Assistant- und mass_queue-Einträge sowie eine eigene Karten-ID selbst ein. Dazu muss ein Admin die Karte einrichten. Danach funktioniert sie auch für Benutzer ohne Admin-Rechte. Die übrigen technischen Werte (`ma_url`, `max_scan`) gibt es nur noch per YAML für Sonderfälle.
 
 Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:"Pink Floyd"'`). Vorhandene YAML-Filter liest er ebenfalls ein.
 
@@ -138,11 +138,11 @@ Der Editor speichert Filter als Ausdruck (`filter: 'genre:*rock* and not artist:
 | `page_size` | `100` | Einträge pro Nachlade-Schritt |
 | `max_scan` | `3000` | Höchstzahl an Einträgen, die für einen Filter durchsucht werden |
 | `queue_limit` / `queue_before` | `200` / `5` | Warteschlange: Titel nach bzw. vor dem aktuellen |
-| `config_entry_id` | automatisch | Music-Assistant-Instanz. Nur nötig für Nicht-Admin-Benutzer (siehe unten). |
-| `mass_queue_entry_id` | automatisch | mass_queue-Instanz, dito |
+| `config_entry_id` | automatisch | Music-Assistant-Instanz. Trägt der Editor selbst ein. |
+| `mass_queue_entry_id` | automatisch | mass_queue-Instanz. Trägt der Editor selbst ein. |
 | `use_mass_queue` | `true` | `false` erzwingt `get_library` |
 | `ma_url` | automatisch | Basis-URL des MA-Servers für Cover über `/imageproxy`, z. B. `http://192.168.10.2:8095` |
-| `id` | `default` | Mehrere Karten mit eigener Speicherung (Player, Tab, Sidebar) |
+| `id` | automatisch | Schlüssel für die Speicherung im Browser (Tab, Sidebar, Player). Vergibt der Editor selbst. |
 | `language` | HA-Sprache | `de` oder `en` |
 
 ## Tabs
@@ -274,7 +274,7 @@ filter:
 ## Hinweise
 
 - **Menüs** und die Player-Auswahl haben einen deckenden Hintergrund (`--primary-background-color` des Themes), auch bei halbtransparenten Kartenthemes. Die Theme-Variable `--mafc-popup-background` überschreibt ihn.
-- **Nicht-Admin-Benutzer** (z. B. Wandtablets) dürfen die Integrationsliste nicht lesen. Trage für sie `config_entry_id` und `mass_queue_entry_id` direkt ein (*Einstellungen → Geräte & Dienste → Integration → ⋮ → Eintrags-ID kopieren*).
+- **Nicht-Admin-Benutzer** (z. B. Wandtablets) dürfen die Integrationsliste nicht lesen. Das ist kein Problem, wenn ein Admin die Karte im Editor eingerichtet hat: Der Editor trägt die Einträge dabei ein. Fehlen sie trotzdem, ermittelt die Karte den Music-Assistant-Eintrag über die Geräte der MA-Player. Für mass_queue gibt es diesen Weg nicht; dann fehlen Favoriten, Genres und „Zuletzt gespielt“, bis ein Admin die Karte einmal im Editor öffnet und speichert.
 - **Cover**: Einige Bilder (z. B. Playlist-Collagen, lokale Dateien) liefert Music Assistant nur über seinen eigenen `/imageproxy` aus. Läuft HA über **HTTPS** und MA über **HTTP**, blockiert der Browser diese Bilder (Mixed Content). Dann erscheint ein Platzhalter-Symbol, oder du setzt `ma_url` auf eine HTTPS-Adresse.
 - **Gruppieren** nutzt `media_player.join` und `media_player.unjoin`. Ob das klappt, hängt vom Player-Typ ab (AirPlay, Chromecast und Sendspin gruppieren in MA problemlos; ein MA-Gruppenplayer als Hauptplayer kann keine weiteren Mitglieder aufnehmen).
 
