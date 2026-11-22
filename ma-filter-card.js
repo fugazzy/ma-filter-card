@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.14.0";
+const MAFC_VERSION = "0.15.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -702,6 +702,12 @@ class MusicAssistantFilterCard extends HTMLElement {
     const tab = this._config.tabs[i], st = this._state(i);
     const drill = st.stack.length ? st.stack[st.stack.length - 1] : null;
     try {
+      if (!drill && tab.type !== "playlist") {
+        // Alben-/Titelansicht: alle angezeigten Einträge abspielen
+        const items = (st.items || []).filter((x) => x.uri && x.media_type !== "radio").slice(0, 500);
+        if (!items.length) return;
+        return this._play({ uri: items.map((x) => x.uri), media_type: this._mediaType(tab, st), name: `${this._tabName(tab)} (${items.length})` }, enqueue);
+      }
       const item = drill ? { uri: drill.uri, media_type: drill.kind, name: drill.name }
         : { uri: await this._resolvePlaylistUri(tab), media_type: "playlist", name: this._tabName(tab) };
       this._play(item, enqueue);
@@ -1854,7 +1860,7 @@ class MusicAssistantFilterCard extends HTMLElement {
       const drill = st.stack.length ? st.stack[st.stack.length - 1] : null;
       bar.innerHTML = `
         ${drill ? `<button class="ib" data-tb="back" title="${esc(this._t("back"))}">${icon("mdi:arrow-left")}</button><div class="tb-title"><span>${esc(drill.name)}</span></div>` : ""}
-        ${drill || tab.type === "playlist" ? `<span class="tb-play"><button class="ib play-all" data-tb="pl-replace" title="${esc(this._t("play_replace"))}">${icon("mdi:play")}</button><button class="ib" data-tb="pl-next" title="${esc(this._t("play_next"))}">${icon("mdi:playlist-play")}</button><button class="ib" data-tb="pl-add" title="${esc(this._t("add_queue"))}">${icon("mdi:playlist-plus")}</button></span>` : ""}
+        ${drill || tab.type === "playlist" || ["album", "track"].includes(this._mediaType(tab, st)) ? `<span class="tb-play"><button class="ib play-all" data-tb="pl-replace" title="${esc(this._t("play_replace"))}">${icon("mdi:play")}</button><button class="ib" data-tb="pl-next" title="${esc(this._t("play_next"))}">${icon("mdi:playlist-play")}</button><button class="ib" data-tb="pl-add" title="${esc(this._t("add_queue"))}">${icon("mdi:playlist-plus")}</button></span>` : ""}
         ${!drill && this._canSwitch(tab) ? `<span class="mt-seg">${["playlist", "album", "track"].map((m) => `<button class="${m === this._mediaType(tab, st) ? "on" : ""}" data-tb="mt" data-mt="${m}" title="${esc(this._t("mt_" + m))}">${icon(TYPE_ICON[m])}<span>${esc(this._t("mt_" + m))}</span></button>`).join("")}</span>` : ""}
         <label class="search">${icon("mdi:magnify")}<input id="search" type="search" placeholder="${esc(this._t("search"))}" value="${esc(st.search)}" enterkeyhint="search"></label>
         ${tab.show_favorites_toggle === false ? "" : `<button class="fav-toggle${st.favOnly ? " on" : ""}" data-tb="fav" title="${esc(this._t("favorites"))}">${icon(st.favOnly ? "mdi:heart" : "mdi:heart-outline")}<span>${esc(this._t("favorites"))}</span></button>`}
