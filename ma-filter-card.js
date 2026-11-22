@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.15.0";
+const MAFC_VERSION = "0.16.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -341,6 +341,7 @@ class MusicAssistantFilterCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._bindHints();
     this._tabState = [];
     this._activeTab = 0;
     this._ui = { collapsed: false, pinned: true };
@@ -2311,6 +2312,58 @@ class MusicAssistantFilterCard extends HTMLElement {
     ov.querySelector(".act")?.focus();
   }
 
+  /* Langes Drücken auf Buttons ohne sichtbare Beschriftung: Funktion als Hinweis
+     anzeigen; Loslassen auf dem Button führt sie aus, Wegziehen bricht ab. */
+  _bindHints() {
+    const root = this.shadowRoot;
+    let h = null, bubble = null, eatClick = false;
+    const label = (b) => (b.getAttribute("title") || b.getAttribute("aria-label") || "").trim();
+    const hide = () => { if (bubble) bubble.className = "hint"; };
+    const over = (e) => {
+      const el = root.elementFromPoint ? root.elementFromPoint(e.clientX, e.clientY) : null;
+      return !!el && el.closest("button") === h.el;
+    };
+    const clear = () => { if (h) clearTimeout(h.timer); h = null; };
+    root.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      const el = e.target.closest("button");
+      if (!el || el.disabled || !label(el) || el.innerText.trim()) return;
+      clear();
+      h = { el, fired: false };
+      h.timer = setTimeout(() => {
+        if (!h) return;
+        h.fired = true;
+        if (navigator.vibrate) try { navigator.vibrate(15); } catch (er) { /* ignore */ }
+        if (!bubble || !bubble.isConnected) { bubble = document.createElement("div"); root.appendChild(bubble); }
+        bubble.textContent = label(el);
+        bubble.className = "hint show";
+        const r = el.getBoundingClientRect(), bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+        const x = Math.max(8, Math.min(window.innerWidth - bw - 8, r.left + r.width / 2 - bw / 2));
+        const y = r.top - bh - 10 < 8 ? r.bottom + 10 : r.top - bh - 10;
+        bubble.style.left = x + "px"; bubble.style.top = y + "px";
+      }, 450);
+    }, true);
+    root.addEventListener("pointermove", (e) => {
+      if (!h) return;
+      if (h.fired) { if (bubble) bubble.classList.toggle("off", !over(e)); }
+      else if (!over(e)) clear();
+    }, true);
+    root.addEventListener("pointercancel", () => { clear(); hide(); }, true);
+    root.addEventListener("pointerup", (e) => {
+      if (!h) return;
+      const { el, fired } = h, ok = fired && over(e);
+      clear();
+      if (!fired) return;
+      hide();
+      eatClick = true; // den nativen Klick nach dem langen Drücken verwerfen …
+      setTimeout(() => { eatClick = false; if (ok) el.click(); }, 0); // … und gezielt auslösen
+    }, true);
+    root.addEventListener("click", (e) => {
+      if (eatClick && e.isTrusted) { eatClick = false; e.stopPropagation(); e.preventDefault(); }
+    }, true);
+    root.addEventListener("contextmenu", (e) => { if (h || e.target.closest("button")) e.preventDefault(); }, true);
+  }
+
   _toast(msg, err = false) {
     const t = this.$("toast");
     if (!t) return;
@@ -2431,6 +2484,12 @@ input[type=range] { flex:1; min-width:0; accent-color: var(--mafc-accent); heigh
 .ib { border:0; background:transparent; width: var(--tap); height: var(--tap); min-width: var(--tap); border-radius:50%; display:inline-flex; align-items:center;
   justify-content:center; cursor:pointer; color: var(--primary-text-color); -webkit-tap-highlight-color: transparent; }
 .ib:hover { background: rgba(127,127,127,.15); }
+button { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+.hint { position:fixed; z-index:20; pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity .12s, transform .12s;
+  background: var(--primary-text-color, #222); color: var(--card-background-color, #fff); padding:6px 10px; border-radius:8px;
+  font-size:13px; font-weight:500; max-width:70vw; box-shadow:0 4px 14px rgba(0,0,0,.3); }
+.hint.show { opacity:1; transform:none; }
+.hint.show.off { opacity:.45; text-decoration:line-through; }
 .ib:active { transform: scale(.94); }
 .ib.sm ha-icon { --mdc-icon-size:20px; }
 .ib.on { color: var(--mafc-accent); }
