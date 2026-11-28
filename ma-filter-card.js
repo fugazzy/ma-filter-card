@@ -1,6 +1,6 @@
 /* Music Assistant Filtercard – Lovelace-Karte für Home Assistant + Music Assistant. Doku: README.md */
 
-const MAFC_VERSION = "0.16.0";
+const MAFC_VERSION = "0.17.0";
 
 /* ------------------------------------------------------------------ i18n */
 
@@ -2154,9 +2154,14 @@ class MusicAssistantFilterCard extends HTMLElement {
       const it = itemAt(el);
       if (it) this._activateItem(it);
     }, (el) => {
-      if (el.dataset.q != null) { this._queueMenu(el.dataset.q); return; }
+      // Langes Drücken startet direkt; ist Antippen schon auf Abspielen gestellt, öffnet es das Menü
+      if (el.dataset.q != null) { this._queuePlay(el.dataset.q); return; }
       const it = itemAt(el);
-      if (it) this._itemMenu(it, this._activeTab);
+      if (!it) return;
+      const coll = ["album", "playlist", "artist"].includes(it.media_type);
+      const tapPlays = coll ? this._config.collection_tap === "play" : this._config.track_tap === "play";
+      if (tapPlays) this._itemMenu(it, this._activeTab);
+      else this._play(it, it.media_type === "radio" ? "play" : "replace");
     });
     content.addEventListener("click", (e) => {
       const b = e.target.closest("[data-act]");

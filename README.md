@@ -13,14 +13,15 @@ Lovelace-Karte für Home Assistant, die Music Assistant steuert. Sie funktionier
 - **Kacheln** mit Cover, Größe passend zum Gerät. Bei Touch werden sie größer, Schrift ab 14,5 px.
   - **Antippen** spielt genau dieses Element ab. Läuft schon etwas, fragt die Karte: Ersetzen, Als nächstes oder Hinzufügen.
   - Bei **Alben, Playlisten und Interpreten** fragt die Karte beim Antippen: Öffnen, komplett abspielen (Warteschlange ersetzen), als nächstes oder anhängen. In einem geöffneten Album und im Tab „Titel einer Playlist“ gibt es dafür auch Knöpfe in der Werkzeugleiste.
-  - **Langes Drücken oder Rechtsklick**: Direkt abspielen, Zur Warteschlange hinzufügen, Als nächstes abspielen, Radiosender daraus erstellen. Bei Album, Playlist und Interpret außerdem „Öffnen“, das die enthaltenen Titel zeigt.
+  - **Langes Drücken oder Rechtsklick** startet das Objekt sofort (Warteschlange wird ersetzt), in der Warteschlange den Titel. Ist Antippen per `track_tap`/`collection_tap` schon auf `play` gestellt, öffnet langes Drücken stattdessen das Menü.
+  - **Buttons ohne Beschriftung** zeigen bei langem Drücken ihre Funktion; Loslassen auf dem Button führt sie aus, Wegziehen bricht ab.
   - Die Liste lädt beim Scrollen automatisch nach.
 - Im **Warteschlangen-Tab** kannst du Titel abspielen, nach oben oder unten schieben, als nächstes einreihen und entfernen. Außerdem lässt sich die ganze Warteschlange leeren.
 - Die Karte übernimmt das **HA-Theme** (`--primary-color`, `--card-background-color`, `--primary-text-color` …). Die Tabs sind gestaltet wie die Einträge der HA-Seitenleiste (`--sidebar-text-color`, `--sidebar-selected-icon-color` …).
 
 ### Neu in 0.6
 
-- **Ein Menü für alles:** Antippen öffnet bei Titeln, Alben, Playlisten und Radiosendern dasselbe Menü. Langes Drücken und Rechtsklick öffnen es ebenfalls.
+- **Ein Menü für alles:** Antippen öffnet bei Titeln, Alben, Playlisten und Radiosendern dasselbe Menü. Langes Drücken startet direkt.
 - **Gefällt mir:** Herz bei den Wiedergabe-Knöpfen (auch in der eingeklappten Sidebar) und oben rechts in jedem Menü.
 - **Songinfo:** Antippen des Covers zeigt Titel, Interpret, Album, Jahr, Dauer, Genre und Quelle.
 - **Hauptplayer-Auswahl** als Liste mit dem, was gerade läuft.
